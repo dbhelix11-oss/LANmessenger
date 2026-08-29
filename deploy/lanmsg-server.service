@@ -1,0 +1,36 @@
+# systemd unit for the lanmessenger relay.
+#
+# Install:
+#   sudo useradd --system --home /var/lib/lanmsg --shell /usr/sbin/nologin lanmsg
+#   sudo install -o lanmsg -g lanmsg -d /var/lib/lanmsg /etc/lanmsg
+#   sudo install -m 0755 lanmsg-server /usr/local/bin/lanmsg-server
+#   sudo -u lanmsg lanmsg-server setup -config /etc/lanmsg/server.toml -data /var/lib/lanmsg
+#   sudo cp deploy/lanmsg-server.service /etc/systemd/system/
+#   sudo systemctl enable --now lanmsg-server
+#
+# The setup step prints the TLS certificate fingerprint. Give that to each client.
+
+[Unit]
+Description=lanmessenger relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lanmsg
+Group=lanmsg
+ExecStart=/usr/local/bin/lanmsg-server run -config /etc/lanmsg/server.toml
+Restart=on-failure
+RestartSec=3
+
+# Hardening: the relay only needs to read its config and write its data dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/lanmsg
+StateDirectory=lanmsg
+
+[Install]
+WantedBy=multi-user.target

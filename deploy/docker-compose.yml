@@ -1,0 +1,28 @@
+# Run the relay with Docker Compose.
+#
+# First-time setup (creates ./data/server.toml and the TLS cert, prints the
+# fingerprint you give to clients):
+#
+#   docker compose run --rm relay setup -config /data/server.toml -data /data \
+#       -listen 0.0.0.0:8443 -passphrase 'your household passphrase'
+#
+# Then start it:
+#
+#   docker compose up -d
+#
+# Show the fingerprint again any time:
+#
+#   docker compose run --rm relay fingerprint -config /data/server.toml
+
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: lanmsg-server:latest
+    restart: unless-stopped
+    # host networking makes the relay reachable by its LAN IP without extra
+    # port-mapping gymnastics across subnets. Swap for "ports:" if you prefer.
+    network_mode: host
+    volumes:
+      - ./data:/data

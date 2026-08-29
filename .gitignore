@@ -1,0 +1,24 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Compiled binaries dropped in the repo root by `go build ./cmd/...`
+/lanmsg
+/lanmsg-server
+/lanmsg-cli
+
+# Local runtime state / data
+*.db
+*.db-shm
+*.db-wal
+/deploy/data/
+*.pem
+*.key
+*.crt
+
+# Editor / OS cruft
+.DS_Store
+*.swp
