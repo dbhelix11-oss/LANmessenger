@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-08-31 — docs, packaging, v2 design
+
+No code changes; documentation, packaging assets, and the deployment unit.
+
+### Added
+
+- `docs/INSTALL.html` — a standalone, offline installation guide covering
+  installing Go on macOS / Linux / Raspberry Pi OS / Windows, cross-compiling the
+  relay for a Pi, the full systemd walkthrough, building and packaging the
+  desktop client, first-run enrollment, contact verification, and a
+  troubleshooting section (`203/EXEC`, `go`/`fyne` not found, fingerprint
+  mismatch, cross-subnet reachability).
+- `cmd/lanmsg/icon.png` — 512×512 application icon (metadata-stripped).
+- `cmd/lanmsg/FyneApp.toml` — app metadata so `fyne package` needs no flags.
+- `docs/DESIGN.md` §12 — design for two v2 features: **paging** (high-priority
+  attention alerts as new end-to-end `Inner` payloads; per-OS always-on-top
+  shim; abuse controls) and a **signed client-update system** (CI builds, relay
+  distributes, client verifies an offline-signed manifest; protocol
+  version-negotiation gate first; no binary diffing; mobile updates via the app
+  stores).
+
+### Changed
+
+- `docs/SETUP.md` — restructured into a linear relay walkthrough (get the binary
+  → `setup` → systemd) with a symptom/cause/fix troubleshooting table; the
+  packaging section now states that each OS bundle is built on that OS and shows
+  the `fyne-cross` path for Windows-from-Linux.
+- `deploy/lanmsg-server.service` — header comment points at `docs/SETUP.md`;
+  `ReadWritePaths` now includes `/etc/lanmsg` so the first-device-becomes-admin
+  config write succeeds under `ProtectSystem=strict`.
+- `README.md` — v2 list now mentions paging and the client-update system.
+- `.gitignore` — ignore `fyne package` output (`*.tar.xz`, `*.app`).
+
 ## 2026-08-29 — initial v1
 
 First complete version of lanmessenger: an end-to-end-encrypted messenger for a

@@ -1,0 +1,13 @@
+# App metadata for `fyne package` / `fyne build`. With this file present you can
+# package from this directory with just `fyne package -os linux|darwin|windows`
+# (no -icon/-name/-appID flags). Note: `fyne package` rewrites this file and
+# bumps Build on each run. See docs/SETUP.md.
+
+Website = "https://github.com/dbhelix11-oss/LANmessenger"
+
+[Details]
+Icon = "icon.png"
+Name = "lanmessenger"
+ID = "net.lanmessenger.desktop"
+Version = "1.0.0"
+Build = 1

@@ -52,7 +52,9 @@ run end to end (wizard → enrol → chat → file transfer) against a live rela
   `status` / `watch`.
 - **Deferred to v2:** group rooms, per-person (multi-device) identity, forward
   secrecy (double ratchet), a local web front-end, mobile apps, auto-away on OS
-  idle.
+  idle, [paging](docs/DESIGN.md#121-paging--a-high-priority-get-back-here-alert)
+  (high-priority attention alerts) and a
+  [signed client-update system](docs/DESIGN.md#122-client-updates--who-builds-who-distributes-who-trusts).
 
 ## Building
 

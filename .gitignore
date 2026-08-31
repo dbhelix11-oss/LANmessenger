@@ -10,6 +10,12 @@
 /lanmsg-server
 /lanmsg-cli
 
+# `fyne package` output (bundles + staging dir); keep FyneApp.toml + icon.png
+*.tar.xz
+*.app
+/cmd/lanmsg/lanmsg
+/cmd/lanmsg/lanmessenger.tar.xz
+
 # Local runtime state / data
 *.db
 *.db-shm

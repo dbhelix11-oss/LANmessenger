@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lanmessenger — Installation Guide</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1c2024;
+    --muted: #5b6570;
+    --rule: #e3e6ea;
+    --accent: #3b5bdb;
+    --code-bg: #f5f6f8;
+    --code-fg: #1c2024;
+    --note-bg: #eef2ff;
+    --note-br: #3b5bdb;
+    --warn-bg: #fff4e5;
+    --warn-br: #d98324;
+    --tip-bg: #e8f6ee;
+    --tip-br: #2f9e5f;
+    --kbd-bg: #e9ecef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --fg: #dfe3e8;
+      --muted: #9aa4b0;
+      --rule: #2b2f36;
+      --accent: #8aa4ff;
+      --code-bg: #1e2127;
+      --code-fg: #e6e9ee;
+      --note-bg: #1b2333;
+      --note-br: #5f7dff;
+      --warn-bg: #2c2418;
+      --warn-br: #d98324;
+      --tip-bg: #16281e;
+      --tip-br: #2f9e5f;
+      --kbd-bg: #2b2f36;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 3rem 1.4rem 6rem;
+  }
+  header.doc {
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 1.2rem;
+    margin-bottom: 2rem;
+  }
+  header.doc h1 { margin: 0 0 .3rem; font-size: 2rem; letter-spacing: -.01em; }
+  header.doc p { margin: 0; color: var(--muted); }
+  h2 {
+    margin: 2.8rem 0 .8rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--rule);
+    font-size: 1.4rem;
+    letter-spacing: -.01em;
+  }
+  h3 { margin: 1.8rem 0 .5rem; font-size: 1.12rem; }
+  h4 { margin: 1.3rem 0 .4rem; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  p, li { margin: .5rem 0; }
+  a { color: var(--accent); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .89em;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: .12em .4em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 1rem 1.1rem;
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+    overflow-x: auto;
+    font-size: .88rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .callout {
+    margin: 1rem 0;
+    padding: .8rem 1rem;
+    border-left: 4px solid var(--note-br);
+    background: var(--note-bg);
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-color: var(--warn-br); background: var(--warn-bg); }
+  .callout.tip  { border-color: var(--tip-br);  background: var(--tip-bg); }
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong.label { display: inline-block; margin-right: .3em; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: .93rem;
+  }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  kbd {
+    font-family: ui-monospace, monospace;
+    background: var(--kbd-bg);
+    border-radius: 4px;
+    padding: .1em .4em;
+    font-size: .85em;
+  }
+  nav.toc {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 2rem 0;
+  }
+  nav.toc h2 { border: 0; margin: 0 0 .5rem; padding: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  nav.toc ol { margin: 0; padding-left: 1.3rem; }
+  nav.toc ol ol { padding-left: 1.1rem; margin: .2rem 0; }
+  nav.toc li { margin: .18rem 0; }
+  nav.toc a { text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  footer.doc {
+    margin-top: 4rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  .lead { font-size: 1.05rem; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <h1>lanmessenger — Installation Guide</h1>
+  <p>Set up the relay once, then install a client on each computer.</p>
+</header>
+
+<p class="lead">
+  <strong>lanmessenger</strong> has two parts:
+</p>
+<ul>
+  <li><strong>The relay</strong> (<code>lanmsg-server</code>) — <strong>one</strong> copy, on a
+      machine that stays on (a Raspberry Pi, a NAS, a spare Linux box). It forwards
+      encrypted messages between clients and holds messages for a computer that is asleep.
+      It cannot read anything it forwards.</li>
+  <li><strong>The client</strong> — <strong>one per computer people actually use</strong>.
+      Either the desktop app (<code>lanmsg</code>) or the terminal client
+      (<code>lanmsg-cli</code>).</li>
+</ul>
+
+<div class="callout">
+  <p><strong class="label">The fingerprint.</strong> Every client connects to the relay over
+  TLS. The relay creates its own certificate the first time it runs and prints a
+  <strong>fingerprint</strong> — a short string of hex. Each client shows you that
+  fingerprint on its first connection and asks you to confirm it.
+  <strong>Write the fingerprint down when you set up the relay</strong>; you need it on
+  every client.</p>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#go">Installing Go</a>
+      <ol>
+        <li><a href="#go-mac">macOS</a></li>
+        <li><a href="#go-linux">Linux (x86-64 desktop)</a></li>
+        <li><a href="#go-pi">Raspberry Pi OS</a></li>
+        <li><a href="#go-windows">Windows</a></li>
+      </ol>
+    </li>
+    <li><a href="#relay">The relay</a>
+      <ol>
+        <li><a href="#relay-binary">Get the <code>lanmsg-server</code> binary onto the machine</a></li>
+        <li><a href="#relay-setup">Create the config</a></li>
+        <li><a href="#relay-systemd">Run it under systemd</a></li>
+        <li><a href="#relay-docker">Docker alternative</a></li>
+        <li><a href="#relay-approval">Admin approval (optional)</a></li>
+      </ol>
+    </li>
+    <li><a href="#client">The client</a>
+      <ol>
+        <li><a href="#client-prereqs">Prerequisites per OS</a></li>
+        <li><a href="#client-build">Build the desktop app</a></li>
+        <li><a href="#client-cli">The terminal client</a></li>
+        <li><a href="#client-package">Make a double-clickable bundle</a></li>
+      </ol>
+    </li>
+    <li><a href="#firstrun">First run &amp; enrollment</a></li>
+    <li><a href="#verify">Verifying contacts</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================= -->
+<h2 id="go">1. Installing Go</h2>
+
+<p>You need <strong>Go 1.27 or newer</strong> to build anything in this project. Check with:</p>
+<pre><code>go version</code></pre>
+<p>If you get <code>command not found: go</code>, install it as below, then <strong>open a new
+terminal window</strong> and try again.</p>
+
+<div class="callout warn">
+  <p><strong class="label">Do not use your package manager's <code>golang</code> package</strong>
+  on Debian, Ubuntu, or Raspberry Pi OS — it is usually one or more releases behind and this
+  project needs 1.27+. Use the official tarball or installer.</p>
+</div>
+
+<h3 id="go-mac">1.1 macOS</h3>
+
+<p>First check your chip:</p>
+<pre><code>uname -m</code></pre>
+<p><code>arm64</code> = Apple Silicon (M1/M2/M3/M4). <code>x86_64</code> = Intel.</p>
+
+<h4>Option A — official installer (simplest)</h4>
+<p>Download the <code>.pkg</code> from <a href="https://go.dev/dl/">go.dev/dl</a>:</p>
+<ul>
+  <li>Apple Silicon → <code>go1.27.0.darwin-arm64.pkg</code></li>
+  <li>Intel → <code>go1.27.0.darwin-amd64.pkg</code></li>
+</ul>
+<p>Double-click it, or from the terminal (match <code>arm64</code>/<code>amd64</code> to your chip):</p>
+<pre><code>curl -LO https://go.dev/dl/go1.27.0.darwin-arm64.pkg
+sudo installer -pkg go1.27.0.darwin-arm64.pkg -target /</code></pre>
+<p>The installer adds <code>/usr/local/go/bin</code> to your <code>PATH</code> via
+<code>/etc/paths.d/go</code>. That only takes effect in <strong>new</strong> shells, so open a
+fresh terminal window, then:</p>
+<pre><code>go version        # go version go1.27.0 darwin/arm64</code></pre>
+
+<h4>Option B — Homebrew</h4>
+<p>Only if you already have Homebrew (<code>brew --version</code> works):</p>
+<pre><code>brew install go</code></pre>
+<p>If you don't have Homebrew, don't install it just for this — the <code>.pkg</code> is quicker.</p>
+
+<div class="callout tip">
+  <p><strong class="label">About <code>xcode-select --install</code>.</strong> On macOS you also
+  need the Command Line Tools (they provide <code>clang</code>). If you run
+  <code>xcode-select --install</code> and see <em>"command line tools are already installed"</em>,
+  that is <strong>not an error</strong> — you already have them. Move on.</p>
+</div>
+
+<h3 id="go-linux">1.2 Linux (x86-64 desktop)</h3>
+<pre><code># 1. download
+curl -LO https://go.dev/dl/go1.27.0.linux-amd64.tar.gz
+
+# 2. replace any existing install
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.27.0.linux-amd64.tar.gz
+
+# 3. put it on PATH for all users
+echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
+source /etc/profile.d/go.sh
+
+# 4. verify
+go version</code></pre>
+
+<h3 id="go-pi">1.3 Raspberry Pi OS</h3>
+<p>Same as Linux, but pick the ARM tarball. Check the architecture first:</p>
+<pre><code>uname -m
+# aarch64        -> use linux-arm64
+# armv7l / armv6l -> use linux-armv6l</code></pre>
+<pre><code>cd /tmp
+curl -LO https://go.dev/dl/go1.27.0.linux-arm64.tar.gz       # 64-bit Raspberry Pi OS
+# curl -LO https://go.dev/dl/go1.27.0.linux-armv6l.tar.gz    # 32-bit
+
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.27.0.linux-arm64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
+source /etc/profile.d/go.sh
+go version</code></pre>
+
+<div class="callout tip">
+  <p><strong class="label">You may not need Go on the Pi at all.</strong> If the Pi is only
+  going to run the relay, it is easier to <a href="#relay-binary">cross-compile the binary on
+  your desktop</a> and copy it over. Installing Go on the Pi is only worth it if you want to
+  build there directly.</p>
+</div>
+
+<h3 id="go-windows">1.4 Windows</h3>
+<p>Download the <code>.msi</code> installer from <a href="https://go.dev/dl/">go.dev/dl</a>
+(<code>go1.27.0.windows-amd64.msi</code>) and run it. It sets <code>PATH</code> for you. Open a
+new <em>Command Prompt</em> or <em>PowerShell</em> and run <code>go version</code>.</p>
+
+<!-- ============================================================= -->
+<h2 id="relay">2. The relay</h2>
+
+<h3 id="relay-binary">2.1 Get the <code>lanmsg-server</code> binary onto the machine</h3>
+
+<p>Two ways. Building on your desktop and copying the binary over is usually less hassle than
+installing Go on a Pi.</p>
+
+<h4>Option A — build on your desktop, copy it over (recommended)</h4>
+<p>In a checkout of this repo on your desktop:</p>
+<pre><code># Raspberry Pi 3 / 4 / 5 on 64-bit Raspberry Pi OS  (on the Pi, `uname -m` says aarch64):
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" \
+    -o lanmsg-server-arm64 ./cmd/lanmsg-server
+
+# 32-bit Raspberry Pi OS:
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" \
+    -o lanmsg-server-armhf ./cmd/lanmsg-server
+
+# An ordinary x86-64 Linux box:
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o lanmsg-server ./cmd/lanmsg-server</code></pre>
+
+<div class="callout">
+  <p><strong class="label">Why <code>CGO_ENABLED=0</code>?</strong> It produces a single
+  self-contained binary with no shared-library dependencies, and it is what lets you build
+  <em>for</em> the Pi <em>from</em> a different kind of machine without a cross-compiler. (The
+  relay uses a pure-Go SQLite, so there is no C code to link.) <code>-trimpath
+  -ldflags="-s -w"</code> just keeps your local paths out of the binary and makes it smaller.</p>
+</div>
+
+<p>Copy it to the relay and install it (swap in your relay's hostname):</p>
+<pre><code>scp lanmsg-server-arm64 stoic@relay.lan:/tmp/
+ssh stoic@relay.lan
+sudo install -m 755 /tmp/lanmsg-server-arm64 /usr/local/bin/lanmsg-server</code></pre>
+
+<h4>Option B — build on the relay machine itself</h4>
+<p>Needs <a href="#go-pi">Go 1.27+ installed on that machine</a>. Then:</p>
+<pre><code>git clone https://github.com/dbhelix11-oss/LANmessenger.git lanmessenger &amp;&amp; cd lanmessenger
+CGO_ENABLED=0 go build -o /tmp/lanmsg-server ./cmd/lanmsg-server
+sudo install -m 755 /tmp/lanmsg-server /usr/local/bin/lanmsg-server</code></pre>
+
+<h4>Check it either way</h4>
+<pre><code>lanmsg-server -h        # should print usage text</code></pre>
+
+<h3 id="relay-setup">2.2 Create the config (run once)</h3>
+
+<p><code>setup</code> writes the config file, generates the TLS certificate, and prints the
+fingerprint.</p>
+<p>We put the config in <code>/etc/lanmsg/</code> and the data (database + certificate) in
+<code>/var/lib/lanmsg/</code>, both owned by a dedicated <code>lanmsg</code> user that the
+service will run as:</p>
+<pre><code>sudo useradd --system --no-create-home --shell /usr/sbin/nologin lanmsg
+sudo install -d -o lanmsg -g lanmsg /etc/lanmsg /var/lib/lanmsg
+
+sudo -u lanmsg lanmsg-server setup \
+    -config /etc/lanmsg/server.toml \
+    -data   /var/lib/lanmsg \
+    -listen 0.0.0.0:8443</code></pre>
+
+<table>
+  <tr><th>Part</th><th>Meaning</th></tr>
+  <tr><td><code>useradd --system … lanmsg</code></td><td>a locked-down account with no login and no home, just to run the relay</td></tr>
+  <tr><td><code>install -d -o lanmsg -g lanmsg …</code></td><td>create both directories owned by <code>lanmsg</code> (like <code>mkdir</code> + <code>chown</code> in one)</td></tr>
+  <tr><td><code>-listen 0.0.0.0:8443</code></td><td>listen on port 8443 on every network the machine has</td></tr>
+  <tr><td><code>sudo -u lanmsg …</code></td><td>run setup <em>as</em> that user so the files it writes are owned by it</td></tr>
+</table>
+
+<p>It prompts for the <strong>household passphrase</strong> twice. Everyone uses this same
+passphrase to enroll a device; the relay stores only a verifier derived from it, never the
+passphrase itself. When it finishes it prints:</p>
+<pre><code>TLS certificate fingerprint (SHA-256) — every client confirms this on first connect:
+
+  57:be:45:64:34:c8:...:3b:46</code></pre>
+
+<div class="callout warn">
+  <p><strong class="label">Copy that fingerprint somewhere safe.</strong> You need it on every
+  client. Lost it later?</p>
+  <pre><code>sudo -u lanmsg lanmsg-server fingerprint -config /etc/lanmsg/server.toml</code></pre>
+</div>
+
+<h3 id="relay-systemd">2.3 Run it under systemd</h3>
+
+<p>The repo ships a unit at <code>deploy/lanmsg-server.service</code> that already matches the
+paths above.</p>
+<pre><code># copy the unit into place (scp it over, or run from your repo checkout on the relay)
+sudo cp deploy/lanmsg-server.service /etc/systemd/system/
+
+# 1. test by hand first — you should see a log line saying it's listening; Ctrl-C to stop
+sudo -u lanmsg lanmsg-server run -config /etc/lanmsg/server.toml
+
+# 2. hand it to systemd
+sudo systemctl daemon-reload
+sudo systemctl enable --now lanmsg-server
+
+# 3. check
+systemctl status lanmsg-server
+journalctl -u lanmsg-server -f</code></pre>
+<p><code>enable --now</code> starts it now <em>and</em> makes it start again after a reboot. If
+<code>status</code> shows <code>activating (auto-restart)</code> with an error, see
+<a href="#trouble">Troubleshooting</a> — the two usual causes are "binary not where the unit
+expects it" and "setup was never run".</p>
+
+<h3 id="relay-docker">2.4 Docker alternative</h3>
+<pre><code>cd deploy
+docker compose run --rm relay setup -config /data/server.toml -data /data -listen 0.0.0.0:8443
+docker compose up -d
+docker compose run --rm relay fingerprint -config /data/server.toml   # print the fingerprint</code></pre>
+<p><code>docker-compose.yml</code> uses host networking and keeps everything under
+<code>./data</code>.</p>
+
+<h3 id="relay-approval">2.5 Admin approval (optional)</h3>
+<p>By default, anyone who has the passphrase and can reach the relay is admitted automatically.
+To instead require that an existing trusted device approve each new one:</p>
+<ul>
+  <li>pass <code>-approval</code> to <code>setup</code>, <strong>or</strong></li>
+  <li>set <code>require_admin_approval = true</code> in <code>server.toml</code> and restart the service.</li>
+</ul>
+<p>The <strong>first</strong> device to enroll is always admitted and becomes an admin — even
+with approval on — so you cannot lock yourself out. After that, each new device sits in a
+"pending" state until an admin approves it from the desktop app's <strong>Pending
+devices</strong> panel.</p>
+
+<!-- ============================================================= -->
+<h2 id="client">3. The client</h2>
+
+<p>Pick one:</p>
+<table>
+  <tr><th></th><th>Desktop app (<code>lanmsg</code>)</th><th>Terminal client (<code>lanmsg-cli</code>)</th></tr>
+  <tr><td>What it is</td><td>Windowed app: roster, chat, tray icon, notifications</td><td><code>enroll</code> / <code>roster</code> / <code>send</code> / <code>status</code> / <code>watch</code></td></tr>
+  <tr><td>Build needs</td><td>Go <strong>and a C compiler</strong> (+ OpenGL/X11 libs on Linux)</td><td>Go only — <code>CGO_ENABLED=0 go build ./cmd/lanmsg-cli</code></td></tr>
+  <tr><td>Good for</td><td>Everyday use</td><td>Headless machines, scripting, testing the relay</td></tr>
+</table>
+
+<h3 id="client-prereqs">3.1 Prerequisites per OS</h3>
+<p>After <a href="#go">installing Go</a>, the desktop app also needs a C compiler. The GUI
+toolkit (Fyne) links native graphics code.</p>
+<table>
+  <tr><th>OS</th><th>Install first</th></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>sudo apt install gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev</code></td></tr>
+  <tr><td>Fedora</td><td><code>sudo dnf install gcc pkgconf-pkg-config mesa-libGL-devel libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel libXi-devel libxkbcommon-devel</code></td></tr>
+  <tr><td>macOS</td><td>Command Line Tools: <code>xcode-select --install</code> ("already installed" is fine). <strong>No extra libraries</strong> — Fyne uses frameworks built into macOS.</td></tr>
+  <tr><td>Windows</td><td>A MinGW-w64 <code>gcc</code> (via <a href="https://www.msys2.org/">MSYS2</a>), or cross-build with <code>fyne-cross</code> (see <a href="#client-package">3.4</a>).</td></tr>
+</table>
+
+<h3 id="client-build">3.2 Build the desktop app</h3>
+<pre><code>git clone https://github.com/dbhelix11-oss/LANmessenger.git
+cd LANmessenger
+
+go build -o lanmsg ./cmd/lanmsg        # or run it directly: go run ./cmd/lanmsg
+./lanmsg</code></pre>
+<p>That is all you need to <em>run</em> the app on the machine you built it on.</p>
+
+<h3 id="client-cli">3.3 The terminal client</h3>
+<pre><code>CGO_ENABLED=0 go build -o lanmsg-cli ./cmd/lanmsg-cli
+
+./lanmsg-cli enroll -server relay.lan:8443 -name "Dad's laptop"
+./lanmsg-cli roster
+./lanmsg-cli send -to "Mom's laptop" -text "dinner in 10"
+./lanmsg-cli status dnd
+./lanmsg-cli watch            # stay connected, print incoming messages / presence</code></pre>
+
+<h3 id="client-package">3.4 Make a double-clickable bundle</h3>
+<p>Use the <code>fyne</code> packaging tool:</p>
+<pre><code>go install fyne.io/tools/cmd/fyne@latest</code></pre>
+<div class="callout">
+  <p><strong class="label"><code>fyne: command not found</code>?</strong> <code>go install</code>
+  puts the tool in <code>$(go env GOPATH)/bin</code> (usually <code>~/go/bin</code>), which is
+  probably not on your <code>PATH</code>. Add it:</p>
+  <pre><code>export PATH="$PATH:$(go env GOPATH)/bin"</code></pre>
+  <p>(put that line in <code>~/.bashrc</code> or <code>~/.zshrc</code> to make it stick), or call
+  it by full path: <code>~/go/bin/fyne …</code></p>
+</div>
+
+<p>App metadata (name, icon, ID, version) lives in <code>cmd/lanmsg/FyneApp.toml</code>, so
+packaging is one command run <strong>from that directory</strong>:</p>
+<pre><code>cd cmd/lanmsg
+fyne package -os linux         # -> lanmessenger.tar.xz</code></pre>
+
+<div class="callout warn">
+  <p><strong class="label">You package for an OS <em>on</em> that OS.</strong> Fyne needs a C
+  compiler that targets the destination, and <code>fyne package</code> does not ship
+  cross-toolchains.</p>
+</div>
+
+<table>
+  <tr><th>Target</th><th>Where to run it</th></tr>
+  <tr><td>Linux tarball</td><td>on Linux: <code>cd cmd/lanmsg &amp;&amp; fyne package -os linux</code></td></tr>
+  <tr><td>macOS <code>.app</code></td><td>on a Mac (after <code>xcode-select --install</code>): <code>cd cmd/lanmsg &amp;&amp; fyne package -os darwin</code></td></tr>
+  <tr><td>Windows <code>.exe</code></td><td>on Windows (MSYS2 + MinGW): <code>fyne package -os windows</code><br>
+    <strong>or</strong> from Linux with <a href="https://github.com/fyne-io/fyne-cross">fyne-cross</a> (Docker):
+    <pre><code>sudo apt install gcc-mingw-w64
+go install github.com/fyne-io/fyne-cross@latest
+fyne-cross windows -arch amd64 ./cmd/lanmsg</code></pre></td></tr>
+</table>
+<p>Cross-building a macOS <code>.app</code> from Linux is not practical — it needs the Apple
+SDK. Build it on a Mac.</p>
+
+<div class="callout tip">
+  <p><strong class="label">Gatekeeper.</strong> When you copy an unsigned
+  <code>lanmessenger.app</code> to another Mac, macOS quarantines it. On that Mac, either
+  right-click the app &rarr; <strong>Open</strong> the first time, or run:</p>
+  <pre><code>xattr -dr com.apple.quarantine /path/to/lanmessenger.app</code></pre>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="firstrun">4. First run &amp; enrollment</h2>
+
+<p>The desktop app opens a short wizard:</p>
+<ol>
+  <li><strong>Relay address</strong> — e.g. <code>relay.lan:8443</code> or <code>192.168.1.10:8443</code>.</li>
+  <li><strong>Confirm the fingerprint</strong> — the app shows the certificate fingerprint it
+      received from the relay. Check it against what <code>setup</code> printed. Match &rarr;
+      continue. No match &rarr; stop (see <a href="#trouble">Troubleshooting</a>).</li>
+  <li><strong>Display name and passphrase</strong> — a name for <em>this device</em>
+      ("Dad's laptop") and the household passphrase.</li>
+  <li>If the relay uses admin approval and this isn't the first device, you land on a
+      "waiting for approval" screen until an admin approves you.</li>
+</ol>
+
+<p>The terminal client does the same in one command:</p>
+<pre><code>lanmsg-cli enroll -server relay.lan:8443 -name "Dad's laptop"
+# fetches the fingerprint, shows it, asks you to confirm, then prompts for the passphrase</code></pre>
+
+<p>Config, keys and history live in your OS config directory:</p>
+<table>
+  <tr><th>OS</th><th>Path</th></tr>
+  <tr><td>Linux</td><td><code>~/.config/lanmessenger</code></td></tr>
+  <tr><td>macOS</td><td><code>~/Library/Application Support/lanmessenger</code></td></tr>
+  <tr><td>Windows</td><td><code>%AppData%\lanmessenger</code></td></tr>
+</table>
+<p>Pass <code>-config &lt;dir&gt;</code> to any client to use a different directory (useful for
+running two identities on one machine while testing).</p>
+
+<!-- ============================================================= -->
+<h2 id="verify">5. Verifying contacts</h2>
+
+<p>TLS and the certificate fingerprint protect the hop between a client and the relay. They do
+<strong>not</strong> prove that "Mom's laptop" in your roster is really Mom's — the relay
+operator, or anyone who learned the passphrase, could enroll a device under any name.</p>
+
+<p>So each device also has its own short <strong>key fingerprint</strong> (desktop app:
+Settings &rarr; <em>This device's fingerprint</em>). A newly seen person shows in your roster
+as <em>unverified</em>. To verify: have them read their fingerprint aloud — across the house,
+over the phone — compare it to what your client shows for them, and click
+<strong>verify</strong>.</p>
+
+<p>If a contact's fingerprint ever changes (reinstall, new machine, or something wrong), the
+client flags it and you verify again.</p>
+
+<!-- ============================================================= -->
+<h2 id="trouble">6. Troubleshooting</h2>
+
+<h3>Build machine</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+  <tr><td><code>command not found: go</code></td><td>Go isn't installed, or its <code>bin</code> dir isn't on <code>PATH</code>, or you're in the shell that was open before you installed it. <a href="#go">Install Go</a>, then open a <strong>new</strong> terminal.</td></tr>
+  <tr><td><code>fyne: command not found</code></td><td><code>~/go/bin</code> isn't on <code>PATH</code>. <code>export PATH="$PATH:$(go env GOPATH)/bin"</code>, or run <code>~/go/bin/fyne</code>.</td></tr>
+  <tr><td><code>xcode-select: … command line tools are already installed</code></td><td>Not an error. You already have what you need. Continue.</td></tr>
+  <tr><td>Linux GUI build: <code>fatal error: xkbcommon/xkbcommon.h: No such file</code> (or similar missing header)</td><td>Missing C libraries. Install the <a href="#client-prereqs">per-OS prerequisites</a>.</td></tr>
+  <tr><td>Go build is slow on a Pi</td><td>Normal the first time — the standard library compiles once, then it's cached. A Pi Zero / Pi 1 is genuinely slow; prefer <a href="#relay-binary">cross-compiling on a desktop</a>.</td></tr>
+</table>
+
+<h3>The relay service won't start</h3>
+<p>Get the exact error first:</p>
+<pre><code>systemctl status lanmsg-server
+journalctl -u lanmsg-server -n 40 --no-pager</code></pre>
+<table>
+  <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+  <tr><td><code>status=203/EXEC</code></td><td>the binary isn't at <code>/usr/local/bin/lanmsg-server</code>, isn't executable, or is built for the wrong CPU</td><td><code>ls -l /usr/local/bin/lanmsg-server</code>, then <code>file</code> it — on a 64-bit Pi you want <code>ELF 64-bit … ARM aarch64</code>. Redo <a href="#relay-binary">2.1</a>.</td></tr>
+  <tr><td><code>config has no passphrase</code> or <code>no such file</code> for <code>server.toml</code></td><td><code>setup</code> was never run, or <code>-config</code> points at the wrong path</td><td>run <a href="#relay-setup">2.2</a>; make sure the path matches <code>ExecStart=</code> in the unit</td></tr>
+  <tr><td><code>permission denied</code> on the config or data dir</td><td><code>/etc/lanmsg</code> or <code>/var/lib/lanmsg</code> isn't owned by <code>lanmsg</code></td><td><code>sudo chown -R lanmsg:lanmsg /etc/lanmsg /var/lib/lanmsg</code></td></tr>
+  <tr><td><code>bind: address already in use</code></td><td>port 8443 is taken</td><td><code>sudo ss -tlnp 'sport = :8443'</code>; change <code>listen_addr</code> in <code>server.toml</code> or stop the other program</td></tr>
+  <tr><td><code>bind: permission denied</code> on a port &lt; 1024</td><td>non-root can't bind low ports</td><td>use a port &ge; 1024 (8443 is fine), or add <code>AmbientCapabilities=CAP_NET_BIND_SERVICE</code> to the unit</td></tr>
+</table>
+<p>Always reproduce it by hand as the service user before blaming systemd:</p>
+<pre><code>sudo -u lanmsg lanmsg-server run -config /etc/lanmsg/server.toml</code></pre>
+
+<h3>A client reports a fingerprint mismatch</h3>
+<p>The fingerprint the client now sees differs from the one it pinned on first connect.
+Usually one of:</p>
+<ul>
+  <li><strong>The relay's certificate was regenerated</strong> — its data dir was wiped, or
+      <code>setup</code> was re-run. Every client has to re-confirm: accept the new fingerprint
+      when prompted, or clear the stored one in the client's config dir and re-enroll.</li>
+  <li><strong>You're connecting to the wrong host</strong> — a different machine answered on
+      that address.</li>
+  <li><strong>Something is intercepting the connection</strong> — if neither of the above
+      fits, stop and investigate.</li>
+</ul>
+
+<h3>A client connects from one part of the house but not another</h3>
+<p>That's network routing, not lanmessenger — the relay has to be reachable from both subnets.
+See <code>docs/NETWORK.md</code> for where to place the relay and the static route a two-router
+setup needs.</p>
+
+<h3><code>connection refused</code> from every client</h3>
+<p>The relay isn't listening, or a firewall blocks the port. On the relay:
+<code>systemctl status lanmsg-server</code>, then <code>ss -tlnp 'sport = :8443'</code>. From a
+client: <code>nc -vz relay.lan 8443</code>.</p>
+
+<footer class="doc">
+  <p>Related: <code>docs/SETUP.md</code> (concise reference) &middot;
+  <code>docs/NETWORK.md</code> (topology &amp; routers) &middot;
+  <code>docs/DESIGN.md</code> (how it works and why, with Go and cryptography primers).</p>
+  <p>Repository: <a href="https://github.com/dbhelix11-oss/LANmessenger">github.com/dbhelix11-oss/LANmessenger</a></p>
+</footer>
+
+</div>
+</body>
+</html>

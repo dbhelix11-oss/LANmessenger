@@ -839,3 +839,181 @@ Run the tests (`go test ./...`) after any change to the engine or relay — the
 integration tests in `internal/clientcore/integration_test.go` exercise a real
 relay end to end (enroll, message, offline queue, file transfer, admin
 approval, cert pinning) and will catch protocol breakage fast.
+
+---
+
+## 12. Planned for v2: paging and client updates
+
+Two features that the architecture is designed for but that are not built yet.
+This section fixes their shape before there is code to argue with.
+
+### 12.1 Paging — a high-priority "get back here" alert
+
+**What it is.** From a roster entry (right-click, or a bell button in the
+conversation header) you send a *page*: a short message that, on the recipient's
+machine, opens a window above everything else, plays a sound, and does not
+dismiss until they click `OK` (or `Yes` / `No`). It deliberately punches through
+`away` / `busy` / `do-not-disturb`. The use case is "I have been typing to you
+for five minutes — look at your screen."
+
+**It needs no new relay behaviour.** A page is just another kind of
+end-to-end-sealed `Inner` payload (§3.7), so the relay forwards it exactly like a
+text message and still cannot read it. Two new `InnerKind`s:
+
+```
+page      -> PageBody{ Text string; Mode string; SentAt int64 }   // Mode: "ok" | "yesno"
+page_ack  -> PageAckBody{ PageID string; Response string }         // "ok" | "yes" | "no"
+```
+
+The sending client seals a `page` the way `SendText` seals a `text` (§6). The
+receiving client, in its dispatch switch (`internal/clientcore/dispatch.go`),
+routes `page` to a new handler that emits a dedicated event; the GUI turns that
+event into the alert window and, when the user answers, seals a `page_ack` back.
+The original sender then shows "✓ acknowledged" or "Dad: No" in the transcript.
+Pages are stored in history like any message (`kind = page`).
+
+**The alert window.** Fyne can create a borderless, always-on-top window and ask
+the window manager for focus. That is enough on an ordinary desktop. What Fyne
+cannot portably do is force itself above a *fullscreen* application (a game, a
+screen-share, a slideshow). That last mile is per-OS:
+
+| OS | Mechanism |
+|---|---|
+| macOS | raise the `NSWindow` level to `kCGScreenSaverWindowLevel` or higher (Objective-C via cgo) |
+| Windows | `SetWindowPos(HWND_TOPMOST)` + `SetForegroundWindow`, working around the foreground-lock |
+| Linux | request it from the WM via EWMH (`_NET_WM_STATE_ABOVE`); exact behaviour is WM-dependent |
+
+Build order: ship the Fyne-only version first (fine most of the time), then add a
+small `internal/alert` package with one function, `RaiseAbove(win)`, and a
+platform file per OS behind it.
+
+**Abuse control.** A page is louder than a message, so:
+
+- The relay gains a generic per-sender frame rate limit (e.g. *N* `msg` frames
+  per 10 s, set in `server.toml`). It cannot tell a page from a text — it does
+  not need to — but the limit caps page spam as a side effect.
+- The client enforces a per-contact cooldown (one page per minute from a given
+  person) and offers "mute pages from X" per roster entry.
+- Offline recipients: a page queues on the relay like any message (§8) and fires
+  on reconnect. A page that is already stale on arrival (older than ~10 minutes)
+  is shown as a normal message, not an alert.
+
+**Mobile.** The same `page` payload; the shell renders it as an Android
+full-screen-intent notification or an iOS *critical alert* (the latter needs a
+special Apple entitlement).
+
+### 12.2 Client updates — who builds, who distributes, who trusts
+
+The requirement: the server can roll a new version out to every client. The
+mistake to avoid: making the server *build* the clients. **Building and
+distributing are separate problems, and only distribution involves the relay.**
+
+#### Why not build on the server
+
+The relay runs on a Raspberry Pi. Cross-compiling `lanmsg-server` and
+`lanmsg-cli` is easy — they are cgo-free (§2.9) — but the GUI needs cgo and
+platform SDKs, and a macOS build needs Apple's SDK plus a cross-linker
+(osxcross). Putting that on a Pi is a large, brittle dependency for no gain. The
+relay stays a message router.
+
+#### Who builds: CI
+
+GitHub Actions builds releases. On a version tag it:
+
+1. cross-compiles `lanmsg-server` + `lanmsg-cli` for every OS/arch from one Linux
+   runner (`CGO_ENABLED=0`);
+2. builds the GUI on native runners — `ubuntu-latest`, `macos-latest`,
+   `windows-latest` — so each `.app` / `.exe` / tarball is produced where its
+   toolchain already lives;
+3. hashes each artifact (SHA-256) and writes a **manifest**:
+
+   ```json
+   {
+     "version": "1.4.0",
+     "notes": "…",
+     "artifacts": [
+       { "os": "darwin", "arch": "arm64", "url": "…", "sha256": "…" }
+     ]
+   }
+   ```
+
+4. signs the manifest with an **offline Ed25519 release key** (in CI secrets or a
+   hardware key — never on the relay);
+5. uploads the artifacts + `manifest.json` + `manifest.sig` to GitHub Releases.
+
+#### Who distributes: the relay
+
+So a fully offline LAN can still update. `lanmsg-server` gains an `updates/`
+directory and serves whatever manifest + artifacts you place there; a
+`lanmsg-server fetch-update` subcommand can pull the latest from GitHub for you.
+Clients download it over the connection they already hold.
+
+#### Who trusts what: the client
+
+Each client ships with the release key's **public** half compiled in. On connect
+it fetches `manifest.json` + `manifest.sig` from the relay and:
+
+1. verifies the signature against the built-in public key — **fail ⇒ stop, the
+   update is ignored entirely**;
+2. if `manifest.version` is newer than its own, downloads the artifact for its
+   own os/arch to a temp file;
+3. checks that file's SHA-256 against the manifest;
+4. atomically replaces its own binary — on Unix: write the new file alongside the
+   old, `rename(2)` over it, re-exec; on Windows: rename the running `.exe`
+   aside, move the new one in, relaunch;
+5. restarts.
+
+`github.com/creativeprojects/go-selfupdate` (the maintained descendant of
+`inconshreveable/go-update`) implements steps 2–5 and understands GitHub
+Releases. The macOS `.app` case is fiddlier — you are replacing a bundle, not a
+lone file — but replacing the inner executable is usually enough; Sparkle is the
+reference design if it is not.
+
+#### Why manifest signing is non-negotiable
+
+An auto-update path is a remote-code-execution path by definition. If updates
+were trusted merely for arriving over the relay's TLS connection, anyone who
+compromised the Pi could push a backdoored client to every machine in the house.
+With an offline signing key, a compromised relay can at worst serve a stale or
+corrupt file, which step 1 or step 3 rejects. **The relay is distribution, not
+authority.**
+
+#### Why no binary diffing
+
+bsdiff and Courgette shrink a 30 MB update to a couple of MB — which matters for
+millions of clients on metered links. You have a handful of machines on a LAN; a
+whole 10–20 MB signed binary over gigabit Ethernet is a non-issue, and verifying
+one complete file is simpler than applying and validating a patch. Skip it unless
+a real bandwidth problem ever turns up.
+
+#### Mobile updates are not part of this
+
+iOS App Store rule 2.5.2 forbids an app downloading and running executable code —
+iOS updates come from the App Store or TestFlight, full stop. Android technically
+lets an app install a signed APK if it was sideloaded, but the flow is clunky
+(system installer UI, an "install unknown apps" permission) and Play-distributed
+apps must update through Play. Plan on **mobile updating through the stores.**
+
+#### The common denominator: protocol version negotiation (build this first)
+
+Every client — desktop now, mobile later — shares one small mechanism, worth
+having even before any self-update code exists. The `Envelope` is already
+versioned (§5). Extend the `ready` frame:
+
+```
+Ready{ DeviceID, Admin, ServerVersion string, MinClientVersion string }
+```
+
+- client version `< MinClientVersion` ⇒ hard stop: disconnect, tell the user to
+  update. This is the lever that forces everyone off a version with a protocol
+  break or a security bug.
+- `MinClientVersion <=` client version `< ServerVersion` ⇒ soft "update
+  available" banner.
+
+Desktop self-update is then an optional convenience layered on this gate; mobile
+just shows the banner with a link to its store.
+
+**Suggested order:** (1) version fields + min-version enforcement + banner;
+(2) CI release pipeline with a signed manifest; (3) relay serves `updates/` and
+desktop clients self-update from it; (4) optional `fetch-update`, and deltas only
+if a bandwidth problem is ever real.

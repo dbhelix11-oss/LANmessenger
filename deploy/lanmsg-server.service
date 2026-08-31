@@ -1,12 +1,13 @@
 # systemd unit for the lanmessenger relay.
 #
-# Install:
-#   sudo useradd --system --home /var/lib/lanmsg --shell /usr/sbin/nologin lanmsg
-#   sudo install -o lanmsg -g lanmsg -d /var/lib/lanmsg /etc/lanmsg
+# Full walkthrough (get the binary, run setup, enable this unit): docs/SETUP.md.
+# Quick version:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin lanmsg
+#   sudo install -d -o lanmsg -g lanmsg /etc/lanmsg /var/lib/lanmsg
 #   sudo install -m 0755 lanmsg-server /usr/local/bin/lanmsg-server
 #   sudo -u lanmsg lanmsg-server setup -config /etc/lanmsg/server.toml -data /var/lib/lanmsg
 #   sudo cp deploy/lanmsg-server.service /etc/systemd/system/
-#   sudo systemctl enable --now lanmsg-server
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lanmsg-server
 #
 # The setup step prints the TLS certificate fingerprint. Give that to each client.
 
@@ -23,13 +24,14 @@ ExecStart=/usr/local/bin/lanmsg-server run -config /etc/lanmsg/server.toml
 Restart=on-failure
 RestartSec=3
 
-# Hardening: the relay only needs to read its config and write its data dir.
+# Hardening: the relay only needs its config dir and its data dir writable
+# (it rewrites the config once, to record the first device as an admin).
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths=/var/lib/lanmsg
+ReadWritePaths=/etc/lanmsg /var/lib/lanmsg
 StateDirectory=lanmsg
 
 [Install]
