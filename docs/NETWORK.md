@@ -75,6 +75,54 @@ Router A's clients have no route to Router B's LAN. Fix it one of two ways:
 2. **Move the relay to the shared upstream** (the modem/gateway segment both
    routers touch), if anything there can run it.
 
+### Case D — reachable from outside the LAN
+
+All three cases above assume every client is on some LAN the relay can
+also reach. For a family member away from the house, that's not true, and
+the home router has no public IP and no port-forwarding — so instead of
+extending the LAN, a small cloud component becomes the relay's remote
+front door:
+
+```
+ remote family member         AWS box (Tor hidden service)          home Pi
+ ─────────────────────         ─────────────────────────           ────────
+ lanmsg-remote-cli                                                  lanmsg-server
+ (clientcore + SOCKS5)                                              (unmodified relay
+        │                                                            logic; [tunnel]
+        │ dial <onion>.onion:8443                                   config block
+        │ via local Tor SOCKS proxy                                 added to
+        ▼                                                           server.toml)
+   [ Tor network ]  ──rendezvous, no inbound port on AWS──▶  Tor daemon on AWS
+                                                              (torrc: HiddenServiceDir +
+                                                               two HiddenServicePort lines)
+                                                                     │
+                                                     forwards to loopback only:
+                                                     virtual :8443 → 127.0.0.1:8443 (public)
+                                                     virtual :9443 → 127.0.0.1:9443 (backend)
+                                                                     │
+                                                          ┌──────────┴──────────┐
+                                                          │   lanmsg-tunnel      │
+                                                          │  (new, stateless,   │
+                                                          │   loopback-only)    │
+                                                          └──────────┬──────────┘
+                                                                     │ yamux stream per
+                                                                     │ remote client
+                                                                     ▼
+                                                          persistent connection ◀── Pi dials OUT
+                                                          (Argon2id+HMAC auth,      via its own
+                                                           no extra TLS — Tor       local Tor SOCKS
+                                                           already authenticates    proxy
+                                                           the .onion endpoint)
+```
+
+The Pi's role doesn't change at all — it's still only ever the one making
+outbound connections, exactly like Cases A–C — it just gets one more
+outbound destination in addition to (not instead of) listening on the
+LAN. Full setup walkthrough (provisioning the cloud box, Tor config on
+both ends, the `[tunnel]` config block) is in [SETUP.md](SETUP.md). Design
+rationale and the exact trust boundary are in
+[DESIGN.md §13](DESIGN.md#13-reaching-the-relay-from-outside-the-lan-the-tor-tunneled-cloud-relay).
+
 ## Firewall
 
 The relay listens on one TCP port (default `8443`). Allow inbound connections to

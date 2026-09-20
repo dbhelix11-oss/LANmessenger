@@ -17,7 +17,9 @@ you to confirm it. **Write the fingerprint down when you set up the relay**; you
 need it on every client.
 
 Order of this doc: [1. the relay](#1-the-relay) → [2. a client](#2-the-client) →
-[3. verify contacts](#3-verifying-contacts) → [4. troubleshooting](#4-troubleshooting).
+[3. verify contacts](#3-verifying-contacts) → [4. troubleshooting](#4-troubleshooting) →
+[5. reaching the relay from outside the LAN](#5-reaching-the-relay-from-outside-the-lan-optional)
+(optional).
 
 ---
 
@@ -346,3 +348,155 @@ static route a two-router setup needs.
 The relay isn't listening, or a firewall blocks the port. On the relay:
 `systemctl status lanmsg-server`, then `ss -tlnp 'sport = :8443'`. From a client:
 `nc -vz relay.lan 8443`.
+
+---
+
+## 5. Reaching the relay from outside the LAN (optional)
+
+Everything above assumes every client is on the home LAN. This section adds
+one more path in: a small, stateless cloud component (`lanmsg-tunnel`) that
+remote family members reach over Tor — no port-forwarding, no open port on
+the home router, and (since it's a Tor hidden service) no open port on the
+cloud box's firewall either. Design rationale and the exact trust boundary:
+[DESIGN.md §13](DESIGN.md#13-reaching-the-relay-from-outside-the-lan-the-tor-tunneled-cloud-relay).
+Topology diagram: [NETWORK.md, Case D](NETWORK.md#case-d--reachable-from-outside-the-lan).
+
+### Step 1 — provision the cloud box
+
+Any small, cheap, always-on VM works (e.g. an AWS EC2 `t4g.nano` or
+equivalent). **Security group / firewall: no inbound rules at all** — not
+even for the tunnel — beyond whatever you need for your own SSH access.
+Tor needs no inbound port to publish a hidden service.
+
+### Step 2 — install and configure Tor on the cloud box
+
+```sh
+sudo apt install tor
+```
+
+Add to `/etc/tor/torrc`:
+
+```
+HiddenServiceDir /var/lib/tor/lanmsg_tunnel/
+HiddenServicePort 8443 127.0.0.1:8443
+HiddenServicePort 9443 127.0.0.1:9443
+```
+
+```sh
+sudo systemctl restart tor
+sudo cat /var/lib/tor/lanmsg_tunnel/hostname   # your .onion address — stable across restarts
+```
+
+That `.onion` address is derived from a keypair Tor generates the first
+time it starts, stored in `HiddenServiceDir`. It doesn't change on restart
+as long as that directory isn't deleted — **back it up**; losing it means
+generating a new address and re-pointing everyone at it.
+
+### Step 3 — get `lanmsg-tunnel` onto the cloud box and run it
+
+Same cross-compile pattern as the relay (Step 1 above), just a different
+package:
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" \
+    -o lanmsg-tunnel ./cmd/lanmsg-tunnel   # adjust GOARCH for the cloud box's CPU
+```
+
+On the cloud box:
+
+```sh
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin lanmsg-tunnel
+sudo install -d -o lanmsg-tunnel -g lanmsg-tunnel /etc/lanmsg-tunnel
+sudo install -m 0755 lanmsg-tunnel /usr/local/bin/lanmsg-tunnel
+
+sudo -u lanmsg-tunnel lanmsg-tunnel setup -config /etc/lanmsg-tunnel/tunnel.toml
+```
+
+`setup` generates a random shared secret and prints it — **copy it down**;
+this is the only time it's shown, and you'll need it in Step 4. It also
+prints the loopback addresses Tor forwards to (defaults `127.0.0.1:8443`
+public, `127.0.0.1:9443` backend, matching the `torrc` above).
+
+```sh
+sudo cp deploy/lanmsg-tunnel.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now lanmsg-tunnel
+systemctl status lanmsg-tunnel
+```
+
+### Step 4 — point the home relay at it
+
+Install Tor on the Pi too (client-only use — no `HiddenServiceDir` needed
+there, just its local SOCKS proxy):
+
+```sh
+sudo apt install tor
+```
+
+Add a `[tunnel]` block to `/etc/lanmsg/server.toml` (the config `setup`
+already created in [Step 2 of §1](#step-2--create-the-config-run-once)):
+
+```toml
+[tunnel]
+cloud_onion_addr = "abcd...xyz.onion:9443"   # from Step 2 above, backend port
+socks_proxy      = "127.0.0.1:9050"          # the Pi's local Tor SOCKS proxy (Tor's default)
+secret            = "the secret lanmsg-tunnel setup printed in Step 3"
+```
+
+```sh
+sudo systemctl restart lanmsg-server
+journalctl -u lanmsg-server -f   # look for "backend authenticated" — confirms the tunnel is up
+```
+
+### Step 5 — set up each remote family member's client
+
+Same enrollment flow as any client ([§2](#2-the-client)), pointed at the
+`.onion` address instead of a LAN address, plus a local Tor for the SOCKS
+proxy. Desktop/laptop:
+
+```sh
+sudo apt install tor   # or install Tor Browser, which also runs a local SOCKS proxy
+lanmsg-remote-cli enroll -server abcd...xyz.onion:8443 -name "Dad's phone (remote)"
+# fetches the fingerprint over Tor, shows it, asks you to confirm — should match
+# the SAME fingerprint every LAN client already has, since TLS still terminates at the Pi
+lanmsg-remote-cli send -to "Mom's laptop" -text "hello from the road"
+```
+
+`lanmsg-remote-cli` has no roster, no presence, no daemon — point it at a
+config directory and a message, it sends and exits. `enroll` is a one-time
+step; every later invocation just calls `send`.
+
+### Step 6 — Android, via Termux
+
+[Termux](https://termux.dev) is a terminal-emulator app that gives Android
+a real Linux-like userland with its own package manager, no root needed.
+
+```sh
+pkg install tor
+tor &                              # or set it up under termux-services for a
+                                    # persistent daemon instead of a fresh
+                                    # bootstrap every session
+lanmsg-remote-cli enroll -server abcd...xyz.onion:8443 -name "Dad's phone (remote)"
+lanmsg-remote-cli send -to "Mom's laptop" -text "hello from the road"
+```
+
+Build `lanmsg-remote-cli` for Android the same way as any other target —
+no cgo anywhere in its dependency chain, so no NDK is needed:
+
+```sh
+CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o lanmsg-remote-cli-android ./cmd/lanmsg-remote-cli
+```
+
+Copy that binary onto the phone (or run `pkg install golang` in Termux and
+build it there directly). One tradeoff worth knowing: Termux only reliably
+keeps *foreground* processes alive, so a freshly started `tor` means a
+several-second circuit-bootstrap wait before the first send of a session.
+
+### Tunnel-specific troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Relay log never shows "backend authenticated" | Wrong `.onion` address, wrong `secret`, or Tor not running on the Pi | check `systemctl status tor` on the Pi; double check `cloud_onion_addr`/`secret` against what `lanmsg-tunnel setup` printed |
+| `lanmsg-tunnel` log shows repeated backend auth failures | `secret` mismatch between the Pi's `server.toml` and the cloud box's `tunnel.toml` | re-copy the secret from the cloud box's `setup` output; it's never re-shown, so if lost, delete `tunnel.toml` and re-run `setup` (and update the Pi's copy) |
+| Remote client's enrollment hangs on the fingerprint probe | Local Tor daemon on the remote machine isn't running, or its SOCKS port isn't `127.0.0.1:9050` | check `systemctl status tor` (or that Tor Browser is open); pass `-socks host:port` if it's different |
+| Remote client connects but everything is slow | Expected — Tor circuits add real latency, typically hundreds of milliseconds to a couple of seconds per connection, more on a fresh circuit | not a bug; this path isn't trying to feel like LAN-speed chat |

@@ -766,6 +766,7 @@ passes.
 | Unwanted people who *do* learn the passphrase later | Optional `require_admin_approval`: new devices are quarantined until an existing trusted device signs an approval. |
 | Tampered / corrupted messages or files | AEAD (Poly1305) rejects any altered ciphertext; whole-file SHA-256 is checked before a download is accepted. |
 | A denied/removed device | Server refuses it at handshake; if connected, it's disconnected. |
+| A fully compromised cloud tunnel box (§13) | It never terminates the app's TLS, never holds a private key, database, or the household passphrase — a compromise leaks connection metadata (timing, byte counts) only, exactly like a relay compromise, one layer further removed. |
 
 ### Limits — be honest about these
 
@@ -1106,6 +1107,77 @@ Desktop self-update is then an optional convenience layered on this gate; mobile
 just shows the banner with a link to its store.
 
 **Suggested order:** (1) version fields + min-version enforcement + banner;
-(2) CI release pipeline with a signed manifest; (3) relay serves `updates/` and
-desktop clients self-update from it; (4) optional `fetch-update`, and deltas only
-if a bandwidth problem is ever real.
+(2) CI release pipeline with a signed manifest; (3) `internal/update` in the
+client — signature check, whole-file download, hash check, atomic swap + re-exec —
+and the relay serving `updates/`; (4) optional `fetch-update`; (5) the
+`internal/updatedelta` module behind the `Patcher` interface, generated in CI,
+enabled per-OS (linux/windows first) when bandwidth actually matters. Steps 1–4
+are the "make it work across OSes" path; step 5 is the separate delta module and
+does not block anything before it.
+
+---
+
+## 13. Reaching the relay from outside the LAN: the Tor-tunneled cloud relay
+
+The relay (§1) assumes every client can route to it. For family members
+away from the house, that assumption doesn't hold, and the home router has
+no public IP and no port-forwarding. The fix keeps the Pi's role
+unchanged — it still only ever *dials out* — and adds one new, deliberately
+minimal component: `lanmsg-tunnel` (`cmd/lanmsg-tunnel`, runtime in
+`internal/tunnel`), a small always-on process on a cheap cloud VM that does
+pure byte-level TCP forwarding, reachable only via a Tor hidden service
+(a `.onion` address) rather than any open inbound port.
+
+**What it is not.** It is not a second relay. It has no database, no
+roster, no message queue, no E2E keys, and no household passphrase. It
+cannot approve a device, read a message, or impersonate the relay to a
+client. Its public-facing listener is deliberately never wrapped in the
+app's TLS, because that TLS must terminate only at the Pi (§1: "TLS
+protects the pipe; E2E protects the payload even from whoever runs the
+pipe"). Its only privilege is deciding whether one specific connection is
+allowed to call itself "the backend" — narrower and less trusted than
+anything the Pi itself holds (§12.2: "the relay is distribution, not
+authority").
+
+**How it works.** The Pi dials the cloud box's `.onion` address (through
+its own local Tor client, over its local SOCKS5 proxy — `internal/servercore/tunnel.go`,
+`dialTunnel`) and proves it holds a shared secret (Argon2id + HMAC
+challenge–response — the same construction as the household passphrase,
+§3.2/§3.3, but a separate secret scoped only to this link — see
+`internal/tunnel/auth.go`). No additional TLS wraps this leg: a `.onion`
+address is itself a cryptographic proof of identity, so a second layer
+would be redundant. The resulting connection is multiplexed
+(`github.com/hashicorp/yamux`) into one logical stream per remote client
+the cloud box accepts (`internal/tunnel/hub.go`, `Hub`). Each stream
+carries that client's raw TLS bytes untouched straight to the Pi's
+existing WebSocket server (`internal/tunnel/listener.go`,
+`SessionListener`), which handles it exactly like a LAN connection — same
+certificate, same fingerprint pin, same passphrase auth, same rate limits
+(`internal/ratelimit`).
+
+A remote client's address is correlated to its data stream over a
+*separate, dedicated control stream* rather than a preamble frame written
+onto the data stream itself — a data stream reaching `net/http` is one
+that genuinely nothing has ever read from beforehand, which turns out to
+matter: see `internal/tunnel/bufferedconn.go`'s doc comment and the
+2026-09-19/20 `DEVLOG.md` entry for a real, subtle bug (TLS state
+corruption from an interrupted read over a multiplexed stream) this
+avoids.
+
+**What the cloud box can see if fully compromised:** connection metadata
+only — timing and byte counts of an already-anonymized Tor circuit; not
+even the remote client's real IP is guaranteed visible past the `.onion`
+layer. It can never see message content, the household passphrase, or any
+device's keys, and can at worst deny service, which clients already
+handle as an ordinary "relay unreachable" reconnect (`internal/clientcore`'s
+existing reconnect-with-backoff, unchanged).
+
+Remote clients need no changes to the existing GUI or CLI — a new, minimal
+`lanmsg-remote-cli` (`cmd/lanmsg-remote-cli`) reuses the same
+`internal/clientcore` client library with one added optional setting
+(`Config.SOCKSProxy`) to route through Tor. It cross-compiles for
+`android/arm64` and runs under Termux (see `docs/SETUP.md`), since nothing
+in its dependency chain requires cgo.
+
+See `docs/NETWORK.md` ("Case D") for the deployment topology and
+`docs/SETUP.md` for the full Tor setup walkthrough.

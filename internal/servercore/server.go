@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"lanmessenger/internal/proto"
+	"lanmessenger/internal/ratelimit"
 )
 
 // Server is a running relay. Construct it with [New] and drive it with [Run].
@@ -27,6 +28,12 @@ type Server struct {
 	store   *serverStore
 	log     *slog.Logger
 	tlsCert tls.Certificate
+
+	// connLimiter bounds new-connection attempts per remote address;
+	// frameLimiter bounds inbound frames per device ID, once authenticated.
+	// Both are in-memory only and reset on restart.
+	connLimiter  *ratelimit.Limiter
+	frameLimiter *ratelimit.Limiter
 
 	mu    sync.RWMutex
 	conns map[string]*conn // device_id -> connection (ready or pending)
@@ -60,7 +67,11 @@ func New(cfg *Config, logger *slog.Logger) (*Server, error) {
 		store:   st,
 		log:     logger,
 		tlsCert: cert,
-		conns:   make(map[string]*conn),
+		connLimiter: ratelimit.New(cfg.RateLimit.MaxConnectsPerWindow,
+			time.Duration(cfg.RateLimit.ConnectWindowSeconds)*time.Second),
+		frameLimiter: ratelimit.New(cfg.RateLimit.MaxFramesPerWindow,
+			time.Duration(cfg.RateLimit.FrameWindowSeconds)*time.Second),
+		conns: make(map[string]*conn),
 	}, nil
 }
 
@@ -92,11 +103,23 @@ func (s *Server) RunListener(ctx context.Context, ln net.Listener) error {
 	return s.serve(ctx, ln)
 }
 
-// serve runs the HTTPS/WebSocket server on ln until ctx is cancelled. It closes
-// the store on return.
+// serve owns the store lifetime and the background loops, then runs the LAN
+// listener. It closes the store on return.
 func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 	defer s.store.Close()
+	go s.purgeLoop(ctx)
+	go s.rateLimitGCLoop(ctx)
+	if s.cfg.Tunnel != nil {
+		go s.runTunnel(ctx)
+	}
+	return s.serveHTTP(ctx, ln)
+}
 
+// serveHTTP runs the HTTPS/WebSocket server on ln until ctx is cancelled. It
+// does not touch the store or the background loops started by serve, so it's
+// safe to call concurrently against more than one listener sharing this
+// *Server — e.g. the LAN listener plus a tunnel-fed one.
+func (s *Server) serveHTTP(ctx context.Context, ln net.Listener) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -109,8 +132,6 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{s.tlsCert}, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	go s.purgeLoop(ctx)
 
 	errc := make(chan error, 1)
 	go func() {
@@ -150,6 +171,24 @@ func (s *Server) purgeLoop(ctx context.Context) {
 			} else if n > 0 {
 				s.log.Info("purged expired queued messages", "count", n)
 			}
+		}
+	}
+}
+
+// rateLimitGCLoop periodically drops rate-limiter bookkeeping for sources
+// that have gone quiet, so memory doesn't grow unbounded over a long
+// uptime. Decoupled from purgeLoop, which can be disabled entirely by
+// QueueRetentionHours == 0.
+func (s *Server) rateLimitGCLoop(ctx context.Context) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			s.connLimiter.GC(now)
+			s.frameLimiter.GC(now)
 		}
 	}
 }

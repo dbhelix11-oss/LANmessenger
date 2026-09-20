@@ -49,8 +49,47 @@ type Config struct {
 	// two consecutive pongs is considered offline and disconnected.
 	HeartbeatSeconds int `toml:"heartbeat_seconds"`
 
+	// RateLimit bounds abuse from any single source. Values are in-memory only
+	// and reset on restart.
+	RateLimit RateLimitConfig `toml:"rate_limit"`
+
+	// Tunnel, when non-nil, makes the relay also dial out to a cloud tunnel
+	// (see internal/tunnel) so clients outside the LAN can reach it without
+	// any inbound port on the home network. Absent by default — every
+	// existing config file keeps working unchanged.
+	Tunnel *TunnelConfig `toml:"tunnel,omitempty"`
+
 	// path is the location this config was loaded from; used to resolve DataDir.
 	path string
+}
+
+// TunnelConfig points the relay at its cloud tunnel counterpart
+// (cmd/lanmsg-tunnel). The relay dials out to CloudOnionAddr through its
+// local Tor SOCKS proxy — this is the only outbound connection the tunnel
+// feature adds; the relay never accepts an inbound connection it didn't
+// already accept before this feature existed.
+type TunnelConfig struct {
+	// CloudOnionAddr is the cloud tunnel's backend .onion address and port,
+	// e.g. "abcd...xyz.onion:9443".
+	CloudOnionAddr string `toml:"cloud_onion_addr"`
+
+	// SOCKSProxy is the local Tor SOCKS proxy used to reach CloudOnionAddr.
+	SOCKSProxy string `toml:"socks_proxy"`
+
+	// Secret authenticates this relay to the cloud tunnel as its legitimate
+	// backend. This is NOT the household passphrase — a separate secret
+	// scoped only to this link, matching cmd/lanmsg-tunnel's own config.
+	Secret string `toml:"secret"`
+}
+
+// RateLimitConfig caps how many new connection attempts and how many inbound
+// frames are allowed per window, each keyed by source (remote address for
+// connection attempts, device ID for frames).
+type RateLimitConfig struct {
+	MaxFramesPerWindow   int `toml:"max_frames_per_window"`
+	FrameWindowSeconds   int `toml:"frame_window_seconds"`
+	MaxConnectsPerWindow int `toml:"max_connects_per_window"`
+	ConnectWindowSeconds int `toml:"connect_window_seconds"`
 }
 
 // Defaults for fields left unset in the TOML file.
@@ -61,6 +100,16 @@ const (
 	defaultMaxQueuePerDev   = 500
 	defaultMaxFrameBytes    = 2 << 20 // 2 MiB; a sealed+base64 512 KiB file chunk is ~0.95 MiB
 	defaultHeartbeatSeconds = 30
+
+	// defaultMaxFramesPerWindow/defaultFrameWindowSeconds is the "generic
+	// per-sender frame rate limit" sketched in docs/DESIGN.md's paging
+	// section — N frames per M seconds, per device.
+	defaultMaxFramesPerWindow   = 20
+	defaultFrameWindowSeconds   = 10
+	defaultMaxConnectsPerWindow = 10
+	defaultConnectWindowSeconds = 60
+
+	defaultTunnelSOCKSProxy = "127.0.0.1:9050"
 )
 
 func (c *Config) applyDefaults() {
@@ -81,6 +130,21 @@ func (c *Config) applyDefaults() {
 	}
 	if c.HeartbeatSeconds == 0 {
 		c.HeartbeatSeconds = defaultHeartbeatSeconds
+	}
+	if c.RateLimit.MaxFramesPerWindow == 0 {
+		c.RateLimit.MaxFramesPerWindow = defaultMaxFramesPerWindow
+	}
+	if c.RateLimit.FrameWindowSeconds == 0 {
+		c.RateLimit.FrameWindowSeconds = defaultFrameWindowSeconds
+	}
+	if c.RateLimit.MaxConnectsPerWindow == 0 {
+		c.RateLimit.MaxConnectsPerWindow = defaultMaxConnectsPerWindow
+	}
+	if c.RateLimit.ConnectWindowSeconds == 0 {
+		c.RateLimit.ConnectWindowSeconds = defaultConnectWindowSeconds
+	}
+	if c.Tunnel != nil && c.Tunnel.SOCKSProxy == "" {
+		c.Tunnel.SOCKSProxy = defaultTunnelSOCKSProxy
 	}
 }
 

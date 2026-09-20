@@ -1,0 +1,46 @@
+# systemd unit for the lanmessenger cloud tunnel — the stateless byte
+# forwarder that lets clients outside the home LAN reach the relay via a
+# Tor hidden service, with no inbound port anywhere in the system.
+#
+# Full walkthrough: docs/SETUP.md's "Reaching the relay from outside the
+# LAN" section. Quick version, run on the cloud box:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin lanmsg-tunnel
+#   sudo install -d -o lanmsg-tunnel -g lanmsg-tunnel /etc/lanmsg-tunnel
+#   sudo install -m 0755 lanmsg-tunnel /usr/local/bin/lanmsg-tunnel
+#   sudo -u lanmsg-tunnel lanmsg-tunnel setup -config /etc/lanmsg-tunnel/tunnel.toml
+#   sudo cp deploy/lanmsg-tunnel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lanmsg-tunnel
+#
+# The setup step prints the shared secret. Copy it into the home relay's own
+# server.toml [tunnel] block. Unlike lanmsg-server, this box holds no
+# database, no roster, and no message queue — only its own config file.
+
+[Unit]
+Description=lanmessenger cloud tunnel (stateless byte forwarder; no app data, no crypto secrets beyond backend auth)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lanmsg-tunnel
+Group=lanmsg-tunnel
+ExecStart=/usr/local/bin/lanmsg-tunnel run -config /etc/lanmsg-tunnel/tunnel.toml
+Restart=on-failure
+RestartSec=3
+
+# Hardening, tighter than lanmsg-server.service since there's no database
+# or queue — only its own config directory ever needs to be writable.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryDenyWriteExecute=true
+ReadWritePaths=/etc/lanmsg-tunnel
+
+[Install]
+WantedBy=multi-user.target

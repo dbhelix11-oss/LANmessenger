@@ -12,6 +12,10 @@ func nowMillis() int64 { return time.Now().UnixMilli() }
 
 // dispatch routes one inbound frame from a connected client.
 func (s *Server) dispatch(c *conn, env *proto.Envelope) {
+	if !s.frameLimiter.Allow(c.deviceID) {
+		c.sendError(env.ID, proto.ErrRateLimited, "too many requests")
+		return
+	}
 	switch env.Type {
 	case proto.TypePing:
 		c.trySend(proto.TypePong, env.ID, nil)

@@ -39,6 +39,13 @@ type Config struct {
 	// the default (100 MiB).
 	MaxFileBytes int64 `json:"max_file_bytes,omitempty"`
 
+	// SOCKSProxy, when set, routes the connection to ServerAddr through a
+	// local SOCKS5 proxy — used by remote clients reaching the relay
+	// through its cloud tunnel over Tor (ServerAddr is then the tunnel's
+	// .onion address). Empty (the default) dials directly, exactly as
+	// every LAN client already does; this never changes existing behavior.
+	SOCKSProxy string `json:"socks_proxy,omitempty"`
+
 	dir string // directory this config was loaded from
 }
 

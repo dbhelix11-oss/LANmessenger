@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,11 @@ func (c *conn) setStatus(s proto.Status, msg string) {
 
 // handleWS upgrades an HTTP request to a WebSocket and runs the connection.
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	if !s.connLimiter.Allow(hostOnly(r.RemoteAddr)) {
+		s.log.Debug("connection attempt rate-limited", "remote", r.RemoteAddr)
+		http.Error(w, "too many connection attempts", http.StatusTooManyRequests)
+		return
+	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"}, // clients are native apps on the LAN, not browsers with a meaningful Origin
 	})
@@ -175,6 +181,19 @@ func (c *conn) sendError(id, code, msg string) {
 func (c *conn) close(code, reason string) {
 	_ = c.ws.Close(websocket.StatusCode(4000), truncateReason(reason))
 	c.cancel()
+}
+
+// hostOnly strips the port from a "host:port" address for rate-limiter
+// keys, since a fresh ephemeral port on every connection would otherwise
+// defeat per-source limiting entirely. Falls back to the input unchanged if
+// it isn't a valid "host:port" (defensive; shouldn't happen for a real
+// net.Conn.RemoteAddr()).
+func hostOnly(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
 
 func truncateReason(s string) string {

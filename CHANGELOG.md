@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-09-20 — reach the relay from outside the LAN (Tor-tunneled cloud relay)
+
+### Added
+
+- **Cloud tunnel** (`cmd/lanmsg-tunnel`, `internal/tunnel`): a small, stateless
+  byte-forwarder deployed on a cloud VM, reachable only via a Tor hidden
+  service — no inbound port on the home network or the cloud box. The relay
+  dials out through its own local Tor SOCKS proxy, authenticates with a
+  shared secret (Argon2id + HMAC, the same construction as the household
+  passphrase), and the resulting connection is multiplexed
+  (`github.com/hashicorp/yamux`) so many remote clients can be relayed
+  concurrently. TLS for the app protocol still terminates only at the relay.
+- **Rate limiting** (`internal/ratelimit`): a sliding-window limiter bounding
+  connection attempts (per source IP) and inbound frames (per device), wired
+  into the relay's existing LAN listener and the new cloud tunnel.
+- `cmd/lanmsg-remote-cli`: a minimal, one-shot terminal client for sending a
+  message through the cloud tunnel — no roster, no presence, no daemon.
+  Reuses `internal/clientcore` end to end, with one added optional setting
+  (a local SOCKS5 proxy) to route through Tor. Cross-compiles for
+  `android/arm64` and runs under Termux.
+- `internal/clientcore`: optional `SOCKSProxy` config field and a
+  SOCKS5-aware certificate-fingerprint probe
+  (`FingerprintOfPresentedCertVia`), used only by remote/Tor clients —
+  existing LAN clients are unaffected.
+- `internal/servercore`: optional `[tunnel]` config block; when present the
+  relay also dials out to the cloud tunnel alongside its normal LAN
+  listener.
+- `deploy/lanmsg-tunnel.service` — systemd unit for the cloud tunnel,
+  sandboxed tighter than the relay's own unit since it holds no database or
+  queue.
+- `docs/DESIGN.md` §13, `docs/NETWORK.md` ("Case D"), `docs/SETUP.md` §5 —
+  design, topology, and a full deployment walkthrough (Tor setup on both
+  ends, the cloud box, and Android/Termux).
+- `DEVLOG.md` — a new narrative dev notebook alongside this changelog.
+
+### Fixed
+
+- A rate limiter keyed by the full `ip:port` remote address defeats itself,
+  since every new connection gets a fresh ephemeral port; now keyed by IP
+  only.
+
 ## 2026-08-31 — desktop client: minimize-to-tray, notification fix
 
 ### Fixed

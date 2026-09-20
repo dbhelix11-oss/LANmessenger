@@ -382,13 +382,14 @@ func AdminActionMessage(action, deviceID string) []byte {
 
 // Error codes used in [ErrorBody].
 const (
-	ErrBadRequest = "bad_request"
-	ErrAuthFailed = "auth_failed"
-	ErrPending    = "pending_approval"
-	ErrNotFound   = "not_found"
-	ErrForbidden  = "forbidden"
-	ErrTooLarge   = "too_large"
-	ErrInternal   = "internal"
+	ErrBadRequest  = "bad_request"
+	ErrAuthFailed  = "auth_failed"
+	ErrPending     = "pending_approval"
+	ErrNotFound    = "not_found"
+	ErrForbidden   = "forbidden"
+	ErrTooLarge    = "too_large"
+	ErrRateLimited = "rate_limited"
+	ErrInternal    = "internal"
 )
 
 // ErrorBody is the payload for [TypeError].

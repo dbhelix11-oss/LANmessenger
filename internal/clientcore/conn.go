@@ -9,12 +9,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+	"golang.org/x/net/proxy"
 
 	"lanmessenger/internal/crypto"
 	"lanmessenger/internal/proto"
@@ -101,6 +103,36 @@ func FingerprintOfPresentedCert(ctx context.Context, serverAddr string) (string,
 	return colonHex(sum[:]), nil
 }
 
+// FingerprintOfPresentedCertVia is [FingerprintOfPresentedCert], but dials
+// serverAddr through a SOCKS5 proxy (a local Tor daemon in practice)
+// instead of directly. Needed to probe a relay reached through the cloud
+// tunnel's .onion address, which a plain tls.Dialer can never resolve — no
+// DNS server knows what a .onion address is; only Tor does. An empty
+// socksProxy is equivalent to calling FingerprintOfPresentedCert.
+func FingerprintOfPresentedCertVia(ctx context.Context, serverAddr, socksProxy string) (string, error) {
+	if socksProxy == "" {
+		return FingerprintOfPresentedCert(ctx, serverAddr)
+	}
+	raw, err := dialSOCKS5(ctx, socksProxy, "tcp", serverAddr)
+	if err != nil {
+		return "", fmt.Errorf("clientcore: probe relay via %s: %w", socksProxy, err)
+	}
+	defer raw.Close()
+
+	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	tlsConn := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
+	if err := tlsConn.HandshakeContext(hctx); err != nil {
+		return "", fmt.Errorf("clientcore: tls handshake: %w", err)
+	}
+	state := tlsConn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return "", errors.New("clientcore: relay presented no certificate")
+	}
+	sum := sha256.Sum256(state.PeerCertificates[0].Raw)
+	return colonHex(sum[:]), nil
+}
+
 func normalizeFingerprint(fp string) string {
 	fp = strings.ToLower(fp)
 	fp = strings.NewReplacer(":", "", " ", "", "-", "").Replace(fp)
@@ -115,12 +147,20 @@ func colonHex(b []byte) string {
 	return strings.Join(parts, ":")
 }
 
-// dial opens a websocket to the relay with certificate pinning.
+// dial opens a websocket to the relay with certificate pinning. When
+// cfg.SOCKSProxy is set, the underlying TCP connection is made through that
+// SOCKS5 proxy instead of dialing directly — TLS still happens in this
+// process, against the same pinned fingerprint, so a remote client reached
+// through the cloud tunnel over Tor is authenticated exactly like a LAN one.
 func (c *Client) dial(ctx context.Context) (*wsConn, error) {
-	httpClient := &http.Client{Transport: &http.Transport{
+	transport := &http.Transport{
 		TLSClientConfig:     c.tlsConfig,
 		TLSHandshakeTimeout: 10 * time.Second,
-	}}
+	}
+	if c.cfg.SOCKSProxy != "" {
+		transport.DialContext = socksDialContext(c.cfg.SOCKSProxy)
+	}
+	httpClient := &http.Client{Transport: transport}
 	dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	ws, _, err := websocket.Dial(dctx, "wss://"+c.cfg.ServerAddr+"/ws", &websocket.DialOptions{
@@ -131,6 +171,28 @@ func (c *Client) dial(ctx context.Context) (*wsConn, error) {
 	}
 	ws.SetReadLimit(4 << 20)
 	return &wsConn{ws: ws}, nil
+}
+
+// socksDialContext returns an http.Transport.DialContext that dials through
+// the SOCKS5 proxy at proxyAddr.
+func socksDialContext(proxyAddr string) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return dialSOCKS5(ctx, proxyAddr, network, addr)
+	}
+}
+
+// dialSOCKS5 dials target through the SOCKS5 proxy at proxyAddr (a local
+// Tor daemon in practice), honoring ctx's deadline/cancellation when the
+// underlying dialer supports it.
+func dialSOCKS5(ctx context.Context, proxyAddr, network, target string) (net.Conn, error) {
+	d, err := proxy.SOCKS5(network, proxyAddr, nil, proxy.Direct)
+	if err != nil {
+		return nil, fmt.Errorf("clientcore: build SOCKS5 dialer: %w", err)
+	}
+	if cd, ok := d.(proxy.ContextDialer); ok {
+		return cd.DialContext(ctx, network, target)
+	}
+	return d.Dial(network, target)
 }
 
 // handshakeResult reports the outcome of the auth handshake.
