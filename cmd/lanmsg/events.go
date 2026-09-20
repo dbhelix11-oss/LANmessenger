@@ -135,5 +135,5 @@ func (g *guiApp) shouldNotify(_ string) bool {
 }
 
 func (g *guiApp) notify(title, body string) {
-	g.fapp.SendNotification(fyne.NewNotification(title, body))
+	g.sendNotification(fyne.NewNotification(title, body))
 }

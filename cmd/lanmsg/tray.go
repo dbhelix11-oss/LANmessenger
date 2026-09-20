@@ -27,6 +27,7 @@ func (g *guiApp) refreshTray() {
 
 func (g *guiApp) trayMenu() *fyne.Menu {
 	show := fyne.NewMenuItem("Show lanmessenger", func() {
+		g.trayHidden.Store(false)
 		g.win.Show()
 		g.win.RequestFocus()
 	})

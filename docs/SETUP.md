@@ -230,6 +230,21 @@ destination, and `fyne package` does not ship cross-toolchains:
 Cross-building a macOS `.app` from Linux is not practical — it needs the Apple
 SDK. Build it on a Mac.
 
+**macOS: run the `.app`, and sign it, or notifications stay silent.** Fyne asks
+macOS for notification permission only from a *bundled* app; an unsigned bundle
+can't get that permission and Fyne falls back to `osascript`, which recent macOS
+silently drops. So on macOS:
+
+```sh
+cd cmd/lanmsg && fyne package -os darwin          # -> lanmessenger.app (bundle ID from FyneApp.toml)
+codesign --force --deep --sign - lanmessenger.app  # ad-hoc; a Developer ID cert is better
+open lanmessenger.app                              # launch the .app, not the bare `go build` binary
+```
+
+Approve the prompt on the first message. If you denied it once, re-enable it in
+System Settings → Notifications → **lanmessenger**. Running a plain
+`go build ./cmd/lanmsg` binary will never show notifications on macOS.
+
 ### First run
 
 The desktop app opens a short wizard:

@@ -701,6 +701,24 @@ for ev := range client.Events() {
 `fyne.Do` is the equivalent of Qt's `QMetaObject::invokeMethod(..., QueuedConnection)`
 or JavaScript's `queueMicrotask`.
 
+### Window, tray, and notifications
+
+- **Close and minimize both hide to the tray.** Fyne only exposes
+  `SetCloseIntercept`, so the close button is caught directly; minimize has no
+  Fyne hook, so on X11 a second, read-only X connection
+  (`cmd/lanmsg/traywatch_linux.go`) watches this window's `WM_STATE` /
+  `_NET_WM_STATE` and calls `win.Hide()` when the WM iconifies it. It is
+  best-effort — no X display, no tray, or window-not-found ⇒ minimize keeps its
+  default behaviour. macOS/Windows keep native minimize (the dock/taskbar still
+  holds the app); a per-OS hook is future work. The tray's "Show lanmessenger"
+  item is the way back; `trayHidden` (atomic) keeps the two paths in sync.
+- **Notification lifetime.** Fyne 2.8's Linux `SendNotification` calls the
+  freedesktop `Notify` method with `expire_timeout = 0`, which the spec defines
+  as *never expire* — a minimal X11 notifier then leaves the popup on screen with
+  no dismiss button. `cmd/lanmsg/notify_linux.go` issues the same D-Bus call with
+  a real timeout (6 s) and falls back to Fyne if the session bus is unreachable.
+  macOS/Windows use Fyne's native path unchanged.
+
 ---
 
 ## 8. Data storage
@@ -978,13 +996,87 @@ With an offline signing key, a compromised relay can at worst serve a stale or
 corrupt file, which step 1 or step 3 rejects. **The relay is distribution, not
 authority.**
 
-#### Why no binary diffing
+#### Optional module: binary-delta ("bit comparison") updates
 
-bsdiff and Courgette shrink a 30 MB update to a couple of MB — which matters for
-millions of clients on metered links. You have a handful of machines on a LAN; a
-whole 10–20 MB signed binary over gigabit Ethernet is a non-issue, and verifying
-one complete file is simpler than applying and validating a patch. Skip it unless
-a real bandwidth problem ever turns up.
+On three machines on gigabit Ethernet, a whole 10–20 MB signed binary downloads
+in a fraction of a second, so a delta saves nothing *today*. The reasons to
+build it anyway, as a **separate, opt-in module**:
+
+- it stops being a guess the moment there are many clients, frequent releases,
+  Wi-Fi-only laptops, or a relay reached over the internet or a slow VPN;
+- designed in now it is ~200 lines behind an interface; retrofitted into a
+  shipped updater it is a manifest/format change affecting every client.
+
+**The trust model does not change.** A delta is a bandwidth optimisation that
+sits *behind* the same two gates as a full download: the offline Ed25519
+signature on the manifest, and the manifest's whole-file SHA-256 of the
+*result*. The manifest gains an optional per-artifact `patches` array:
+
+```json
+{ "os": "linux", "arch": "amd64", "url": "…", "sha256": "<sha256 of whole new binary>",
+  "patches": [
+    { "from_version": "1.3.0", "from_sha256": "<sha256 of whole old binary>",
+      "algo": "bsdiff", "url": "…", "sha256": "<sha256 of the patch file>" }
+  ] }
+```
+
+Client decision tree:
+
+1. verify manifest signature (unchanged); newer version available?
+2. is my on-disk binary's SHA-256 equal to some `patches[].from_sha256`, and do I
+   have a patcher for its `algo`? If **no** → whole-file download path (unchanged).
+3. if **yes** → download the patch, check the patch file's own `sha256`, apply it
+   to my current binary → candidate file;
+4. check the candidate's SHA-256 against the artifact's whole-file `sha256`.
+   **Mismatch ⇒ discard, fall back to the whole-file download.**
+5. atomic swap + re-exec, exactly as the whole-file path.
+
+A corrupt or hostile patch cannot produce a binary that matches the signed
+whole-file hash, so step 4 makes the delta path no more trusted than the plain
+one. If the on-disk binary isn't a pristine release (locally built, already
+patched by a half-finished run), step 2 fails closed and the client just fetches
+the whole file.
+
+**Modularity boundary.** A core package `internal/update` owns the manifest,
+signature check, download, hash check and atomic swap, and depends only on:
+
+```go
+// internal/updatedelta
+type Patcher interface {
+    Algo() string
+    Apply(old io.ReaderAt, oldSize int64, patch io.Reader, out io.Writer) error
+}
+```
+
+plus a registry. The delta implementation — a pure-Go bsdiff/bspatch port
+(`github.com/gabstv/go-bsdiff` or similar) or a zstd `--patch-from` backend —
+lives entirely in `internal/updatedelta` and registers itself from an optional
+import (`_ "lanmessenger/internal/updatedelta/bsdiff"`) or a build tag. With
+nothing registered, `internal/update` compiles and runs with no delta code at
+all and every client does whole-file downloads. Nothing on the core path imports
+the delta package.
+
+**Who generates patches: CI, not the relay.** After building the new artifacts,
+a CI step pulls the previous *N* still-supported releases' artifacts from GitHub
+Releases and runs the diff generator (`new ← old`) for each `(os, arch)` and each
+`from_version`, hashes each patch, appends the `patches[]` entries, and uploads
+the patch files next to the artifacts. Patch *generation* is the memory-hungry
+side (bsdiff is O(n log n) with a large working set) and it runs on a CI runner.
+The relay's `updates/` dir and `fetch-update` just mirror the extra files; the
+relay never diffs or patches anything. Clients no more than *N* releases behind
+get a delta; everyone else gets the whole file.
+
+**Per-OS opt-in.** Enable deltas for `linux` and `windows` first (patch the lone
+executable). macOS ships a signed `.app` bundle; patching the inner Mach-O
+client-side would break the code signature, so **macOS stays whole-file** (whole
+-bundle) until there's a signing story for in-place updates. Mobile is
+store-only regardless (previous section). Delta application peak memory is
+roughly `oldsize + newsize` transient — nothing on a desktop, but another reason
+mobile stays out.
+
+**Bottom line:** design it in, keep it in its own package behind the `Patcher`
+interface, ship it disabled, and turn it on per-OS when a real bandwidth reason
+shows up.
 
 #### Mobile updates are not part of this
 

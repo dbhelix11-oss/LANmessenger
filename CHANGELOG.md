@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-08-31 — desktop client: minimize-to-tray, notification fix
+
+### Fixed
+
+- **Minimize now hides to the system tray** like the close button already did.
+  Fyne has no minimize hook, so on X11 (`cmd/lanmsg/traywatch_linux.go`) a
+  second read-only X connection watches this window's `WM_STATE` /
+  `_NET_WM_STATE` and calls `Hide()` when the WM iconifies it. Best-effort: no X
+  display / no tray / window-not-found leaves minimize unchanged. macOS/Windows
+  keep native minimize for now. New dep: `github.com/BurntSushi/xgb` (pure Go).
+- **Linux desktop notifications now expire.** Fyne 2.8 sends the freedesktop
+  `Notify` call with `expire_timeout = 0` ("never expire"); minimal X11
+  notifiers then leave popups stuck on screen with no close button.
+  `cmd/lanmsg/notify_linux.go` issues the D-Bus call directly with a 6 s
+  timeout and falls back to Fyne if the session bus is unreachable.
+  `github.com/godbus/dbus/v5` promoted from indirect to direct.
+
+### Changed
+
+- `docs/SETUP.md` — macOS packaging section now covers signing the `.app` and
+  the notification-permission requirement (a bare `go build` binary shows no
+  notifications on macOS).
+- `docs/DESIGN.md` §7 — new "Window, tray, and notifications" note; §12.2
+  reworked so binary-delta ("bit comparison") updates are a designed-in but
+  separate, opt-in module (`internal/updatedelta` behind a `Patcher` interface)
+  that never changes the signed-manifest trust model.
+
 ## 2026-08-31 — docs, packaging, v2 design
 
 No code changes; documentation, packaging assets, and the deployment unit.

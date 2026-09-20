@@ -51,11 +51,13 @@ func main() {
 	g.buildTray()
 	g.win.SetCloseIntercept(func() {
 		if g.hasTray {
+			g.trayHidden.Store(true)
 			g.win.Hide()
 			return
 		}
 		g.doQuit()
 	})
+	g.startMinimizeToTray()
 
 	if cfg.Configured() && cfg.Enrolled() {
 		g.startExistingClient()

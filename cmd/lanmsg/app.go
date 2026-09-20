@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
@@ -30,6 +31,9 @@ type guiApp struct {
 	client *clientcore.Client
 
 	hasTray bool
+	// trayHidden is true while the window is hidden to the tray (via the close
+	// button or a minimize redirected by startMinimizeToTray).
+	trayHidden atomic.Bool
 
 	// main view widgets
 	roster    *rosterView
