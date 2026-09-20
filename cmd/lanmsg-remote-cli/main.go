@@ -1,14 +1,18 @@
-// Command lanmsg-remote-cli is a minimal, one-shot terminal client for
-// reaching the LANmessenger relay from outside the home LAN, through the
-// cloud tunnel over Tor. It reuses the exact same engine
-// (internal/clientcore) as the desktop app and lanmsg-cli — enrollment,
-// crypto, SendText — with one difference: it always routes its connection
-// through a local Tor SOCKS5 proxy, since ServerAddr is the cloud tunnel's
-// .onion address rather than a LAN address.
+// Command lanmsg-remote-cli is a minimal terminal client for reaching the
+// LANmessenger relay from outside the home LAN, through the cloud tunnel
+// over Tor. It reuses the exact same engine (internal/clientcore) as the
+// desktop app and lanmsg-cli — enrollment, crypto, SendText — with one
+// difference: it always routes its connection through a local Tor SOCKS5
+// proxy, since ServerAddr is the cloud tunnel's .onion address rather than
+// a LAN address.
 //
-// There is no roster browsing, no presence, no daemon: point it at a
-// config directory and a message, it sends and exits. Enrollment is a
-// one-time step; every later invocation just sends.
+// There is no roster browsing and no presence-setting: `send` is a one-shot
+// fire-and-exit command, point it at a message and it's gone. `watch` is
+// the one long-running exception — needed because sending is otherwise a
+// one-way street: without it, replies still arrive and get safely stored
+// (clientcore acks and persists any message this client is ever connected
+// for, regardless of whether anything is watching), but nothing ever shows
+// them to the user.
 //
 // It cross-compiles cleanly for Android/Termux
 // (CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build), since nothing in its
@@ -19,6 +23,7 @@
 //
 //	lanmsg-remote-cli [-config dir] [-socks host:port] enroll -server onion:port -name "My phone" [-fingerprint fp] [-passphrase p]
 //	lanmsg-remote-cli [-config dir] [-socks host:port] send -to <name-or-id> -text "message"
+//	lanmsg-remote-cli [-config dir] [-socks host:port] watch
 package main
 
 import (
@@ -28,8 +33,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"lanmessenger/internal/clientcore"
@@ -60,6 +67,8 @@ func main() {
 		err = cmdEnroll(dir, *socks, args[1:])
 	case "send":
 		err = cmdSend(dir, *socks, args[1:])
+	case "watch":
+		err = cmdWatch(dir, *socks)
 	default:
 		usage()
 		os.Exit(2)
@@ -85,10 +94,11 @@ func defaultRemoteDir() (string, error) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `lanmsg-remote-cli — one-shot remote client (via the cloud tunnel over Tor)
+	fmt.Fprint(os.Stderr, `lanmsg-remote-cli — remote client (via the cloud tunnel over Tor)
 
   lanmsg-remote-cli [-config dir] [-socks host:port] enroll -server onion:port -name NAME [-fingerprint FP] [-passphrase P]
   lanmsg-remote-cli [-config dir] [-socks host:port] send -to NAME_OR_ID -text "message"
+  lanmsg-remote-cli [-config dir] [-socks host:port] watch
 
 -socks defaults to 127.0.0.1:9050 (a local Tor daemon's default SOCKS5 port).
 `)
@@ -219,8 +229,80 @@ func cmdSend(dir, socks string, args []string) error {
 	return nil
 }
 
+func cmdWatch(dir, socks string) error {
+	cfg, err := clientcore.LoadConfig(dir)
+	if err != nil {
+		return err
+	}
+	if !cfg.Configured() || !cfg.Enrolled() {
+		return errors.New("this config is not enrolled yet; run `enroll` first")
+	}
+	cfg.SOCKSProxy = socks
+
+	cl, err := clientcore.New(cfg, nil)
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+	if !cl.HasPassphrase() {
+		return errors.New("no stored passphrase; re-run `enroll` with -passphrase")
+	}
+
+	ctx, cancel := signalContext()
+	defer cancel()
+	if err := cl.Start(ctx); err != nil {
+		return err
+	}
+	fmt.Println("watching (Ctrl-C to stop)…")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev := <-cl.Events():
+			switch ev.Kind {
+			case clientcore.EventConnState:
+				fmt.Printf("[conn] %s\n", ev.State)
+			case clientcore.EventMessage:
+				if ev.Message != nil && ev.Message.Direction == clientcore.DirIn {
+					fmt.Printf("[msg] %s: %s\n", nameFor(cl, ev.PeerID), ev.Message.Body)
+				}
+			case clientcore.EventPresence:
+				if ev.Presence != nil {
+					fmt.Printf("[presence] %s -> %s (online=%v)\n",
+						nameFor(cl, ev.PeerID), ev.Presence.Status, ev.Presence.Online)
+				}
+			case clientcore.EventFileProgress:
+				if ev.Progress != nil && ev.Progress.Complete {
+					fmt.Printf("[file] %s (%s)\n", ev.Progress.Name, ev.Progress.Path)
+				}
+			case clientcore.EventError:
+				fmt.Printf("[error] %v\n", ev.Err)
+			}
+		}
+	}
+}
+
 // --- helpers, shared in spirit with lanmsg-cli but kept local since this
-// tool intentionally has a much smaller surface (no roster/watch/status). ---
+// tool intentionally has a much smaller surface (no roster browsing, no
+// presence-setting). ---
+
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+}
+
+func nameFor(cl *clientcore.Client, id string) string {
+	entries, _ := cl.Roster()
+	for _, e := range entries {
+		if e.DeviceID == id {
+			return e.DisplayName
+		}
+	}
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
 
 func waitReady(ctx context.Context, cl *clientcore.Client, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)

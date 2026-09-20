@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-20 — lanmsg-remote-cli: add a `watch` command
+
+### Added
+
+- `lanmsg-remote-cli watch` — stays connected and prints incoming messages,
+  presence, and connection-state changes as they arrive, same idea as
+  `lanmsg-cli watch`. Previously the remote CLI was send-only: replies still
+  arrived and were safely acknowledged and stored locally, but nothing ever
+  displayed them.
+
 ## 2026-09-20 — fix: sending right after connecting could miss the roster
 
 ### Fixed

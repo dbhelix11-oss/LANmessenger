@@ -460,11 +460,16 @@ lanmsg-remote-cli enroll -server abcd...xyz.onion:8443 -name "Dad's phone (remot
 # fetches the fingerprint over Tor, shows it, asks you to confirm — should match
 # the SAME fingerprint every LAN client already has, since TLS still terminates at the Pi
 lanmsg-remote-cli send -to "Mom's laptop" -text "hello from the road"
+lanmsg-remote-cli watch                                      # stay connected, print replies as they arrive
 ```
 
-`lanmsg-remote-cli` has no roster, no presence, no daemon — point it at a
-config directory and a message, it sends and exits. `enroll` is a one-time
-step; every later invocation just calls `send`.
+`lanmsg-remote-cli` has no roster and no presence-setting. `send` is a
+one-shot fire-and-exit command. `watch` is the one long-running exception —
+without it, replies still arrive and get safely stored (any message this
+client is ever connected for gets acknowledged and saved locally,
+regardless of whether anything is watching), but nothing prints them to the
+terminal, so you'd have no way to know a reply came in. `enroll` is a
+one-time step; every later invocation just calls `send` or `watch`.
 
 ### Step 6 — Android, via Termux
 
@@ -478,6 +483,7 @@ tor &                              # or set it up under termux-services for a
                                     # bootstrap every session
 lanmsg-remote-cli enroll -server abcd...xyz.onion:8443 -name "Dad's phone (remote)"
 lanmsg-remote-cli send -to "Mom's laptop" -text "hello from the road"
+lanmsg-remote-cli watch
 ```
 
 Build `lanmsg-remote-cli` for Android the same way as any other target —
