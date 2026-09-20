@@ -5,6 +5,39 @@ This is a running notebook, not a changelog. `CHANGELOG.md` stays the terse
 reasoning, the dead ends, the small pieces of code that are actually worth
 looking at rather than just describing. Started 2026-09-19.
 
+## 2026-09-20 (live deployment) — A shared config directory bit us on the first real run
+
+First live deployment of the cloud tunnel (real AWS box, real Pi, real Tor)
+went smoothly right up through the Pi authenticating to the cloud tunnel
+and the fingerprint matching on a remote enrollment attempt — then the
+*desktop GUI client*, on the same home machine used to test
+`lanmsg-remote-cli`, started failing to reach the relay over the LAN with:
+
+```
+Clientcore: connect 192.168.1.118:8443: failed to WebSocket dial: ...
+socks connect tcp 127.0.0.1:9050->192.168.1.118:8443: unknown error general SOCKS server failure
+```
+
+Cause, once traced through: `cmd/lanmsg-remote-cli` defaulted to
+`clientcore.DefaultDir()` — the *exact same* directory `cmd/lanmsg` (the
+GUI) and `cmd/lanmsg-cli` already use. Running `lanmsg-remote-cli enroll`
+without an explicit `-config` (exactly what the SETUP.md walkthrough's
+example command does) silently loaded and overwrote the GUI's own
+`config.json` in place, setting `socks_proxy` on it. The GUI then tried to
+reach its perfectly normal LAN address *through Tor*, which correctly
+refuses to proxy to a private-use address.
+
+This was a real gap in the plan and the SETUP.md walkthrough alike:
+"reuse `internal/clientcore`" (true, and still the right call — no crypto
+or protocol code was duplicated) quietly implied "reuse its default
+directory too," which was never actually the right call for a *second,
+independent* client identity that happens to run on the same machine as
+a LAN one. Fixed by giving `lanmsg-remote-cli` its own sibling default
+directory (`lanmessenger-remote`) — a one-line-of-intent fix
+(`cmd/lanmsg-remote-cli/main.go`'s `defaultRemoteDir`), but the kind of
+thing that only shows up by actually running the thing end to end on real
+hardware, not in any of the loopback tests.
+
 ## 2026-09-19/20 — A real bug: TLS over a yamux stream, poisoned by net/http's own optimization
 
 Found while writing the three-role loopback integration test

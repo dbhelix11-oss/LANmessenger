@@ -28,6 +28,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,7 +38,7 @@ import (
 const defaultSOCKSProxy = "127.0.0.1:9050"
 
 func main() {
-	cfgDir := flag.String("config", "", "config directory (default: OS config dir + /lanmessenger)")
+	cfgDir := flag.String("config", "", "config directory (default: OS config dir + /lanmessenger-remote)")
 	socks := flag.String("socks", defaultSOCKSProxy, "local Tor SOCKS5 proxy address")
 	flag.Parse()
 	args := flag.Args()
@@ -48,7 +49,7 @@ func main() {
 
 	dir := *cfgDir
 	if dir == "" {
-		d, err := clientcore.DefaultDir()
+		d, err := defaultRemoteDir()
 		must(err)
 		dir = d
 	}
@@ -67,6 +68,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// defaultRemoteDir is deliberately NOT clientcore.DefaultDir() — that's the
+// same directory the GUI (cmd/lanmsg) and cmd/lanmsg-cli default to. Sharing
+// it caused a real bug: running `enroll` here with no -config silently
+// overwrote a LAN client's config.json with SOCKSProxy set, breaking its
+// LAN connection (Tor refuses to proxy to private-use addresses). This
+// tool gets its own sibling directory so it can never collide.
+func defaultRemoteDir() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("locate config dir: %w", err)
+	}
+	return filepath.Join(base, "lanmessenger-remote"), nil
 }
 
 func usage() {

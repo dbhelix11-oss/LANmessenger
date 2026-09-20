@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-20 — fix: lanmsg-remote-cli's default config dir collided with the GUI's
+
+### Fixed
+
+- `lanmsg-remote-cli` defaulted to the same config directory as the GUI
+  (`lanmsg`) and `lanmsg-cli`. Running `enroll` here with no `-config` flag
+  silently overwrote a LAN client's `config.json` with `socks_proxy` set,
+  breaking its LAN connection (Tor refuses to proxy to private-use
+  addresses — surfaced as "general SOCKS server failure"). Found during the
+  first live deployment. Now defaults to its own sibling directory
+  (`lanmessenger-remote`) so it can never collide.
+
 ## 2026-09-20 — reach the relay from outside the LAN (Tor-tunneled cloud relay)
 
 ### Added
