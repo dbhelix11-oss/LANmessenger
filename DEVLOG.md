@@ -5,6 +5,35 @@ This is a running notebook, not a changelog. `CHANGELOG.md` stays the terse
 reasoning, the dead ends, the small pieces of code that are actually worth
 looking at rather than just describing. Started 2026-09-19.
 
+## 2026-09-20 (live deployment) — ready-before-roster race in both send commands
+
+Second real bug caught by actually running this over a live Tor link
+rather than loopback tests: `lanmsg-remote-cli send -to "Jessie" ...`
+failed with `no peer matching "Jessie"` right after a *successful*
+enrollment that had just put "Jessie" in the roster moments earlier — the
+device unquestionably existed.
+
+Traced it to `internal/clientcore/dispatch.go`: `ready` and
+`directory_snapshot` are two separate frames. `handleReady` (dispatch.go:39-51)
+flips state to `StateReady` the instant the `ready` frame arrives;
+`handleSnapshot` populates the actual roster only once the *next* frame is
+processed. Both `cmd/lanmsg-cli` and `cmd/lanmsg-remote-cli`'s `send`
+commands did `waitReady(...)` then an immediate, one-shot `resolvePeer(...)`
+— correct only if the snapshot always arrives before (or immediately with)
+`ready`, which the protocol never actually guarantees. On a LAN this race
+is narrow enough to almost never lose; over Tor, where latency is higher
+and far more variable, it's easy to lose.
+
+This is the same shape of bug the three-role integration test
+(`internal/servercore/tunnel_integration_test.go`) had already caught and
+fixed with `waitSeesPeer` — but that fix lived only in the test harness,
+never in the actual shipped `cmd/` tools that have the identical pattern.
+Worth remembering: a test catching a race in its *own* helper code doesn't
+mean the same race isn't still live in the product.
+
+Fixed by giving both `send` commands a `waitForPeer` retry loop (a few
+seconds, short poll interval) instead of a single immediate lookup.
+
 ## 2026-09-20 (live deployment) — A shared config directory bit us on the first real run
 
 First live deployment of the cloud tunnel (real AWS box, real Pi, real Tor)

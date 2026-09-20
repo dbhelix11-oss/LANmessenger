@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-20 — fix: sending right after connecting could miss the roster
+
+### Fixed
+
+- `lanmsg-cli send` and `lanmsg-remote-cli send` could fail with "no peer
+  matching ..." for a genuinely valid recipient. The relay sends the
+  directory snapshot (the roster's actual contents) as a separate frame
+  right after `ready`; a fresh connection could report ready a moment
+  before that snapshot was processed, so an immediate roster lookup could
+  race against a still-empty roster. Far more likely over Tor, whose
+  latency is higher and more variable than a LAN connection. Both commands
+  now retry the lookup for a few seconds instead of checking once. Found
+  during the first live deployment.
+
 ## 2026-09-20 — fix: lanmsg-remote-cli's default config dir collided with the GUI's
 
 ### Fixed

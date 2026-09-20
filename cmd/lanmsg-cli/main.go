@@ -223,7 +223,7 @@ func cmdSend(dir string, args []string) error {
 	}
 	waitReady(ctx, cl, 10*time.Second)
 
-	peerID, err := resolvePeer(cl, *to)
+	peerID, err := waitForPeer(ctx, cl, *to, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -326,6 +326,31 @@ func waitReady(ctx context.Context, cl *clientcore.Client, timeout time.Duration
 		case <-ctx.Done():
 			return
 		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// waitForPeer retries resolvePeer for up to timeout. The relay sends the
+// directory snapshot (the roster's actual contents) as a separate frame
+// right after `ready`; a fresh connection can briefly report StateReady
+// before that snapshot has been processed, so a single immediate
+// resolvePeer call can spuriously fail against a still-empty roster.
+func waitForPeer(ctx context.Context, cl *clientcore.Client, needle string, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		id, err := resolvePeer(cl, needle)
+		if err == nil {
+			return id, nil
+		}
+		lastErr = err
+		if time.Now().After(deadline) {
+			return "", lastErr
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
 }
