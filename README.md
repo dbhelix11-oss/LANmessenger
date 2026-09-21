@@ -67,6 +67,14 @@ CGO_ENABLED=0 go build ./cmd/lanmsg-server ./cmd/lanmsg-cli
 # Desktop GUI — needs a C compiler and OpenGL headers (see docs/SETUP.md):
 go build ./cmd/lanmsg
 
+# lanmsg-remote-cli for Android (e.g. to run under Termux) — no cgo in its
+# dependency chain, so no NDK is needed. Cross-compiled from another machine:
+CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o lanmsg-remote-cli-android ./cmd/lanmsg-remote-cli
+
+# ...or built natively on the phone itself, inside Termux (pkg install golang
+# first) — GOOS/GOARCH aren't needed since Termux's Go already targets android/arm64:
+go build -o lanmsg-remote-cli-android ./cmd/lanmsg-remote-cli
+
 go test ./...
 ```
 

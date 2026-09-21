@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-20 — docs: README build commands for lanmsg-remote-cli on Android
+
+### Changed
+
+- `README.md`'s Building section now includes the `GOOS=android
+  GOARCH=arm64` cross-compile command for `lanmsg-remote-cli`, plus the
+  on-device alternative (`pkg install golang` under Termux, no GOOS/GOARCH
+  needed). Previously this was documented only in `docs/SETUP.md`.
+
 ## 2026-09-20 — lanmsg-remote-cli: add a `watch` command
 
 ### Added
