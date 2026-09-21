@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-09-20 — desktop client: start-minimized flag, tray-watcher shutdown fix
+
+### Added
+
+- `lanmsg -start-minimized` starts the desktop client hidden in the system
+  tray instead of opening the main window — for launching on login without
+  the roster popping up every time. No-op (window shows as normal) if the
+  desktop has no system tray.
+
+### Fixed
+
+- `cmd/lanmsg/traywatch_linux.go`: the X11 tray-watcher connection could be
+  closed twice on shutdown (once by its own deferred close, once by the
+  goroutine watching for app-context cancellation), and the underlying
+  `xgb` library panics on a second `Close()`. Found while setting up
+  autostart, which made a clean exit-on-logout a routine path instead of a
+  rare one. Now guarded with `sync.Once`.
+
+### Docs
+
+- `docs/SETUP.md`: a new "Starting automatically" section under the client
+  setup steps — installing the desktop client per-user under `~/.local`
+  (no `sudo`), adding it to the application menu and/or Desktop, and
+  autostarting it via the XDG autostart spec (`~/.config/autostart/`) with
+  `-start-minimized`.
+
 ## 2026-09-20 — docs: README build commands for lanmsg-remote-cli on Android
 
 ### Changed

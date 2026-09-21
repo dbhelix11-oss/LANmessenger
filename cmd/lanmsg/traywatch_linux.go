@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -34,12 +35,16 @@ func (g *guiApp) minimizeToTrayLoop() {
 		g.log.Debug("minimize-to-tray: no X connection", "err", err)
 		return
 	}
-	defer c.Close()
+	// xgb panics on a second Close of the same connection, and both the
+	// deferred close below and the shutdown goroutine can reach it.
+	var closeOnce sync.Once
+	closeConn := func() { closeOnce.Do(c.Close) }
+	defer closeConn()
 
 	// Close the connection when the app shuts down; that unblocks WaitForEvent.
 	go func() {
 		<-g.ctx.Done()
-		c.Close()
+		closeConn()
 	}()
 
 	root := xproto.Setup(c).DefaultScreen(c).Root

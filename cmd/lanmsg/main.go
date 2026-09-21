@@ -16,6 +16,7 @@ import (
 
 func main() {
 	dirFlag := flag.String("config", "", "configuration directory (default: OS config dir + /lanmessenger)")
+	startMinimized := flag.Bool("start-minimized", false, "start hidden in the system tray instead of opening the main window (requires a tray icon)")
 	flag.Parse()
 
 	dir := *dirFlag
@@ -65,7 +66,12 @@ func main() {
 		g.showWizard()
 	}
 
-	g.win.ShowAndRun()
+	if *startMinimized && g.hasTray {
+		g.trayHidden.Store(true)
+		g.fapp.Run()
+	} else {
+		g.win.ShowAndRun()
+	}
 
 	g.cancel()
 	if g.client != nil {

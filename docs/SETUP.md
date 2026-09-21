@@ -278,6 +278,66 @@ Config, keys and history live in your OS config directory:
 Pass `-config <dir>` to any client to use a different directory (useful for
 running two identities on one machine while testing).
 
+### Starting automatically (Linux, per-user, no `sudo`)
+
+The `fyne package` tarball's `Makefile` installs system-wide under
+`/usr/local`, which needs root. For one user's own login, installing under
+`~/.local` instead needs no `sudo` and (on most distros) needs nothing
+extra on `$PATH`, since `~/.local/bin` is already searched:
+
+```sh
+cd cmd/lanmsg && fyne package -os linux   # -> lanmessenger.tar.xz
+tar -xf lanmessenger.tar.xz -C /tmp/lanmsg-extract
+
+mkdir -p ~/.local/bin ~/.local/share/applications \
+         ~/.local/share/icons/hicolor/512x512/apps
+cp /tmp/lanmsg-extract/lanmsg/usr/local/bin/lanmsg ~/.local/bin/
+cp /tmp/lanmsg-extract/lanmsg/usr/local/share/pixmaps/*.png \
+   ~/.local/share/icons/hicolor/512x512/apps/
+
+cat > ~/.local/share/applications/net.lanmessenger.desktop.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=lanmessenger
+Exec=$HOME/.local/bin/lanmsg
+Icon=net.lanmessenger.desktop
+Terminal=false
+EOF
+chmod +x ~/.local/share/applications/net.lanmessenger.desktop.desktop
+```
+
+That alone gets you an entry in the application menu. For a double-clickable
+icon on the desktop itself, copy the same `.desktop` file into `~/Desktop/`
+and `chmod +x` it (some file managers also require right-click → "Allow
+Launching" / "Execute" the first time, as a trust prompt for a new
+executable `.desktop` file).
+
+**Launch on login**, every desktop environment that follows the
+[XDG autostart spec](https://specifications.freedesktop.org/autostart-spec/latest/)
+(LXQt, GNOME, KDE, XFCE, …): drop the same `.desktop` file into
+`~/.config/autostart/`. This is simpler than a `systemd --user` service for a
+GUI app — the session already provides `DISPLAY`/`WAYLAND_DISPLAY` and the
+D-Bus session bus to anything it autostarts, which a systemd user unit would
+otherwise need wiring up by hand (`systemctl --user import-environment` or a
+`graphical-session.target` dependency).
+
+```sh
+mkdir -p ~/.config/autostart
+cp ~/.local/share/applications/net.lanmessenger.desktop.desktop \
+   ~/.config/autostart/net.lanmessenger.desktop.desktop
+```
+
+Add `-start-minimized` to that copy's `Exec=` line so it comes up quietly in
+the tray instead of popping the main window open on every login:
+
+```
+Exec=/home/you/.local/bin/lanmsg -start-minimized
+```
+
+`-start-minimized` is a no-op silently ignored (window is shown as normal) if
+the desktop environment has no system tray to hide into — see `-h` for all
+flags.
+
 ---
 
 ## 3. Verifying contacts
