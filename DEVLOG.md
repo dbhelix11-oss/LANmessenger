@@ -5,6 +5,87 @@ This is a running notebook, not a changelog. `CHANGELOG.md` stays the terse
 reasoning, the dead ends, the small pieces of code that are actually worth
 looking at rather than just describing. Started 2026-09-19.
 
+## 2026-09-22 — the blank-window-on-taskbar-restore bug, three attempts in
+
+The user reported the desktop client, restored from the taskbar with a
+single left click, showed only its frame — transparent, whatever was behind
+it showing through — but working fine via the tray menu's own "Show" item.
+Three fix attempts before the real one, in order, each teaching something:
+
+**Attempt 1 — `Content().Refresh()` on the iconic→non-iconic PropertyNotify
+transition.** Reasonable first guess: Fyne's dirty-tracking just needed a
+nudge after a hide/show cycle. Shipped it, restarted the client, user said
+still broken.
+
+**Attempt 2 — also watch `FocusIn`.** Maybe the specific panel doing the
+restore never touches `WM_STATE`/`_NET_WM_STATE` at all, so the property
+watch never even fired. Added a second, more universal trigger (gaining
+input focus is common to essentially every restore path). Still broken —
+and testing *this* one surfaced a real bug on its own: a `fyne.Do()` call
+landing after Fyne's own main loop had already torn down during shutdown
+panicked with "send on closed channel," an entirely separate, previously-
+latent race this file's more frequent triggering finally exposed. Fixed
+with a `g.ctx.Err() != nil` guard before dispatching — worth calling out on
+its own, but still not the actual bug being chased.
+
+**Attempt 3 — a 1px resize nudge instead of `Content().Refresh()`.**
+Reasoning: maybe marking the canvas dirty isn't enough to force an actual
+GL buffer swap, and a real OS-level resize is more forceful. Still broken.
+
+**The actual problem, found only once real reproduction became possible.**
+Up to this point every fix had been informed guessing — verified only by
+"doesn't crash," never "does the bug still happen," because there was no
+way to simulate a taskbar click. The user pointed out (correctly) that
+every automated test so far had only ever exercised the first-run wizard
+screen (fresh, empty config directories), never the actual main view the
+bug happens on. Fixed both problems at once: enrolled a throwaway client
+against a local test relay so a test instance would boot straight to the
+real roster/conversation view, and asked the user to `apt install
+xdotool wmctrl` so real X11 protocol messages could be sent — specifically,
+`wmctrl -i -a <winid>` sends the exact `_NET_ACTIVE_WINDOW` client message a
+taskbar click sends. That reproduced the bug immediately, screenshotted and
+everything, on the very first try.
+
+With debug logging turned on (`LANMSG_DEBUG=1`, already a supported env var,
+just not normally used) and the real repro loop in hand, the actual
+sequence became visible: `trayHidden` was still `true` after the restore.
+Only the tray menu's own "Show" handler ever calls `g.win.Show()` and clears
+that flag. Minimizing calls Fyne's `Window.Hide()`, which marks *Fyne's own*
+internal visibility bookkeeping hidden — not just the OS-level window state.
+A taskbar restore (`_NET_ACTIVE_WINDOW`) is handled entirely by the window
+manager remapping the X11 window directly; it never goes through Fyne's API
+at all. So the window becomes mapped (its frame paints, since that's purely
+an X server/WM concern) while Fyne itself, still believing it's hidden,
+never resumes its render loop for it — nothing ever gets drawn into the
+newly-visible surface. That's why attempts 1–3 all missed: none of them were
+wrong about "the content isn't repainting," they were all solving the wrong
+layer of the problem. The window didn't need a repaint. It needed Fyne told
+it exists again.
+
+Fix: `cmd/lanmsg/traywatch_linux.go`'s new `restoreIfHidden`, triggered by
+the same `FocusIn` hook from attempt 2 (kept
+— it's still the most reliable universal signal), checks whether
+`trayHidden` is still true and, if so, calls `g.win.Show()` +
+`RequestFocus()` exactly as the tray menu's handler already did — bringing
+Fyne's internal state back in sync with reality, rather than trying to force
+a repaint of a window Fyne doesn't think is showing.
+
+Verified for real this time: 4 consecutive minimize → `wmctrl -a` restore
+cycles against the real main view, each one screenshotted, each one
+rendering full content. Not "doesn't crash" — actually looked at the pixels.
+
+**Also added along the way:** a visible build identifier (window title +
+toolbar label) — `internal/version.BuildInfo()`, reading Go's automatic git
+VCS build stamp (commit hash + dirty flag, embedded free by `go build`/`fyne
+package`, confirmed via `go version -m` on the actual installed binary,
+confirmed it survives `-trimpath`/`-ldflags="-s -w"`/fyne's packaging, and
+confirmed it's *not* present in `go test`'s own build — so the test for it
+exercises the pure formatting logic against constructed `debug.BuildSetting`
+values instead of relying on the ambient build environment). This is
+originally what made attempt-by-attempt verification possible at all in
+this exact debugging session: the user could always check the title bar to
+confirm they were actually running the build being tested, not a stale one.
+
 ## 2026-09-21 — Client auto-update, phase 5: making the docs stop lying
 
 `docs/DESIGN.md` §12.2 had described the update system's *design* since

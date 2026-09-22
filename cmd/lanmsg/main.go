@@ -45,7 +45,7 @@ func main() {
 		cancel: cancel,
 		cfg:    cfg,
 	}
-	g.win = fapp.NewWindow("lanmessenger")
+	g.win = fapp.NewWindow("lanmessenger — " + versionLabel())
 	g.win.Resize(fyne.NewSize(940, 620))
 	g.win.SetMaster()
 

@@ -66,8 +66,8 @@ func (g *guiApp) minimizeToTrayLoop() {
 	}
 
 	if err := xproto.ChangeWindowAttributesChecked(c, win, xproto.CwEventMask,
-		[]uint32{uint32(xproto.EventMaskPropertyChange)}).Check(); err != nil {
-		g.log.Debug("minimize-to-tray: cannot select PropertyChange", "err", err)
+		[]uint32{uint32(xproto.EventMaskPropertyChange | xproto.EventMaskFocusChange)}).Check(); err != nil {
+		g.log.Debug("minimize-to-tray: cannot select PropertyChange/FocusChange", "err", err)
 		return
 	}
 
@@ -80,6 +80,39 @@ func (g *guiApp) minimizeToTrayLoop() {
 		if ev == nil { // connection closed (shutdown)
 			return
 		}
+		if g.ctx.Err() != nil {
+			// Shutting down: Fyne's own main loop may already have torn
+			// itself down by the time a queued-up event reaches here, and
+			// fyne.Do on a dead main loop panics ("send on closed channel").
+			// Nothing to repaint on our way out anyway.
+			return
+		}
+
+		// A taskbar/panel click restoring the window (as opposed to our own
+		// tray "Show") activates it via a _NET_ACTIVE_WINDOW client message
+		// sent straight to the X server — the window manager remaps our
+		// window directly, with no call into Fyne's own Show() at all. That
+		// makes the OS-level window visible again (so its frame paints) but
+		// leaves Fyne's *internal* visibility bookkeeping still saying
+		// "hidden" from our own win.Hide() call when it was minimized, so
+		// Fyne's render loop never resumes drawing into it — exactly the
+		// blank/transparent client area this whole file exists to prevent.
+		// A plain repaint nudge (Content().Refresh(), even a resize) cannot
+		// fix this, confirmed by testing: the problem isn't "needs a
+		// repaint," it's "Fyne doesn't know it's visible." The only real
+		// fix is calling Show() ourselves to bring Fyne's state back in
+		// sync, exactly as if the user had used our own tray menu.
+		//
+		// FocusIn is the one signal common to every restore path (taskbar
+		// click, alt-tab, title-bar click, our own RequestFocus) regardless
+		// of which WM_STATE/_NET_WM_STATE transition (if any) a given
+		// panel's restore happens to touch, so it's the primary trigger
+		// here rather than PropertyNotify on WM_STATE.
+		if fi, isFocus := ev.(xproto.FocusInEvent); isFocus && fi.Event == win {
+			restoreIfHidden(g)
+			continue
+		}
+
 		pn, isProp := ev.(xproto.PropertyNotifyEvent)
 		if !isProp || pn.Window != win {
 			continue
@@ -100,22 +133,33 @@ func (g *guiApp) minimizeToTrayLoop() {
 			continue
 		}
 		if !minimized {
-			// The window just became non-iconic — either restored natively
-			// by the WM (if it was iconified without ever going through our
-			// own Hide() above, e.g. a missed event) or by our own tray
-			// "Show" handler. Some driver/WM combinations don't repaint the
-			// GL surface on their own after a hide/iconify cycle, leaving a
-			// blank, undrawn client area (just the frame, showing whatever
-			// is behind it) until something forces a redraw. Nudge one
-			// explicitly on every such transition; harmless if it wasn't
-			// actually needed.
-			fyne.Do(func() {
-				if c := g.win.Content(); c != nil {
-					c.Refresh()
-				}
-			})
+			restoreIfHidden(g)
 		}
 	}
+}
+
+// restoreIfHidden brings Fyne's own visibility state back in sync with the
+// window actually being on screen again. If our own win.Hide() (minimize-
+// to-tray) is why trayHidden is true, only Fyne's own Show() resumes its
+// render loop — see the FocusIn case above for why a mere repaint doesn't.
+// If trayHidden was already false, this was a plain iconify our redirect
+// never touched (or Fyne was already showing it), so there's nothing to
+// bring back in sync; just nudge a repaint in case the GL surface still
+// needs one for some other reason.
+func restoreIfHidden(g *guiApp) {
+	if g.trayHidden.Swap(false) {
+		fyne.Do(func() {
+			g.win.Show()
+			g.win.RequestFocus()
+		})
+		g.clearUnread()
+		return
+	}
+	fyne.Do(func() {
+		if c := g.win.Content(); c != nil {
+			c.Refresh()
+		}
+	})
 }
 
 // findOwnWindow locates this process's managed top-level window. It prefers the

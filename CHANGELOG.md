@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-09-22 — desktop client: fix blank window on taskbar restore; visible build version
+
+### Added
+
+- The desktop client's window title and main toolbar now show a build
+  identifier (release version plus a 7-char git commit hash, e.g.
+  `v0.1.0 (77d0884)`, `-dirty` suffixed if built from an uncommitted tree) —
+  for confirming at a glance that a running instance is actually the build
+  you think it is. Needs no build-script changes: Go embeds this
+  automatically for any build made from a git checkout.
+
+### Fixed
+
+- Restoring the desktop client from the taskbar (a single click, as opposed
+  to using the tray menu's "Show" item) left the window showing only its
+  frame with no rendered content — transparent, showing whatever was behind
+  it. Root cause: minimizing calls Fyne's `Window.Hide()`, which marks
+  Fyne's *own* internal visibility state hidden, not just the OS window; a
+  taskbar click restores the window by sending `_NET_ACTIVE_WINDOW` straight
+  to the window manager, remapping the X11 window directly with no call into
+  Fyne's API at all — so the frame becomes visible but Fyne's render loop,
+  still believing itself hidden, never resumes drawing into it. Two earlier
+  attempts at a fix (forcing `Content().Refresh()`, then a window-resize
+  nudge) both missed this, since the problem was never "needs a repaint."
+  Fixed by explicitly calling `Show()` (matching the tray menu's own working
+  path) whenever the window is detected coming back while still marked
+  hidden. Reproduced and verified with a scripted `xdotool`/`wmctrl`
+  minimize-then-taskbar-restore loop against a real enrolled client, not
+  just by inspection — full details, including two dead-end fix attempts,
+  in `DEVLOG.md`.
+
 ## 2026-09-21 — client auto-update system; desktop tray/notification polish
 
 ### Added

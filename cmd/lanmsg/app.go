@@ -16,7 +16,21 @@ import (
 
 	"lanmessenger/internal/clientcore"
 	"lanmessenger/internal/proto"
+	"lanmessenger/internal/version"
 )
+
+// versionLabel is a short, always-visible build identifier — shown in the
+// window title and the main toolbar — for confirming at a glance that a
+// running instance is actually the build you think it is, since Version
+// alone (bumped only for releases) doesn't change between two local
+// rebuilds of the same commit. See internal/version.BuildInfo.
+func versionLabel() string {
+	label := "v" + version.Version
+	if b := version.BuildInfo(); b != "" {
+		label += " (" + b + ")"
+	}
+	return label
+}
 
 // guiApp holds the running application: the Fyne handles, the client core, and
 // references to the widgets the event pump needs to refresh.

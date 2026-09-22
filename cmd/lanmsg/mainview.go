@@ -40,9 +40,14 @@ func (g *guiApp) showMain() {
 	g.adminBtn = widget.NewButtonWithIcon("Pending devices", theme.ConfirmIcon(), g.showAdminPanel)
 	g.adminBtn.Hidden = !g.client.IsAdmin()
 
+	versionLbl := widget.NewLabel(versionLabel())
+	versionLbl.TextStyle = fyne.TextStyle{Italic: true}
+
 	right := container.NewHBox(
 		g.adminBtn,
 		widget.NewButtonWithIcon("Settings", theme.SettingsIcon(), g.showSettings),
+		widget.NewSeparator(),
+		versionLbl,
 	)
 
 	top := container.NewBorder(nil, nil, toolbar, right)
