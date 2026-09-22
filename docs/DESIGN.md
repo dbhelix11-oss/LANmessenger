@@ -861,10 +861,12 @@ approval, cert pinning) and will catch protocol breakage fast.
 
 ---
 
-## 12. Planned for v2: paging and client updates
+## 12. v2: paging and client updates
 
-Two features that the architecture is designed for but that are not built yet.
-This section fixes their shape before there is code to argue with.
+Two features the architecture was designed for ahead of time. §12.2 (client
+updates) is now built; §12.1 (paging) still isn't — this section originally
+fixed both their shapes before there was code to argue with, and §12.2 now
+also records what actually shipped against that original shape.
 
 ### 12.1 Paging — a high-priority "get back here" alert
 
@@ -923,81 +925,162 @@ special Apple entitlement).
 
 ### 12.2 Client updates — who builds, who distributes, who trusts
 
-The requirement: the server can roll a new version out to every client. The
-mistake to avoid: making the server *build* the clients. **Building and
-distributing are separate problems, and only distribution involves the relay.**
+**Built** (2026-09-20/21; full narrative in `DEVLOG.md`'s "Client auto-update"
+entries). Two independent mechanisms, deliberately kept separate throughout
+the implementation:
+
+- A coarse **protocol compatibility gate** — "can this build even talk to the
+  relay" — carried on the `ready` frame itself, changes rarely, applies to
+  every client uniformly. See "Protocol version negotiation" below.
+- A per-artifact **convenience self-update** — "is there a newer build of
+  exactly this binary" — manifest-driven (`internal/update`), independent of
+  the protocol gate, so a release touching only `lanmsg-cli` never tells a
+  GUI client anything changed for it.
+
+The original design below (build/distribute/trust) survives mostly intact;
+what changed under implementation is *who builds* — a hybrid the user chose
+deliberately over the CI-only version originally sketched here, to avoid
+depending on GitHub for routine releases — and the manifest shape, which
+ended up per-artifact rather than one blanket version. The mistake the
+original design was already right to avoid: making the server *build* the
+clients. **Building and distributing are separate problems, and only
+distribution involves the relay.**
 
 #### Why not build on the server
 
-The relay runs on a Raspberry Pi. Cross-compiling `lanmsg-server` and
-`lanmsg-cli` is easy — they are cgo-free (§2.9) — but the GUI needs cgo and
-platform SDKs, and a macOS build needs Apple's SDK plus a cross-linker
-(osxcross). Putting that on a Pi is a large, brittle dependency for no gain. The
-relay stays a message router.
+The relay runs on a Raspberry Pi. Cross-compiling `lanmsg-cli`,
+`lanmsg-remote-cli`, and `lanmsg-server` is easy — they are cgo-free (§2.9) —
+and `scripts/pi-release.sh` does exactly that, on the Pi itself, for every
+supported OS/arch. The GUI is the one binary this doesn't extend to: Fyne
+needs cgo and a native per-OS toolchain, and a macOS build additionally needs
+Apple's SDK plus a cross-linker (osxcross) that has no reasonable place on a
+Pi. Even Linux GUI builds are host-*architecture*-bound — `fyne package -os
+linux` run on the Pi's arm64 produces an arm64 tarball, not amd64, since it
+packages for the target OS using the *host's* toolchain rather than actually
+cross-compiling (see `docs/SETUP.md`'s packaging section). The relay stays a
+message router; a GUI-affecting release goes through CI instead (below).
 
-#### Who builds: CI
+#### Who builds: a hybrid, chosen to avoid a GitHub dependency for routine releases
 
-GitHub Actions builds releases. On a version tag it:
+**Headless binaries (`lanmsg-cli`, `lanmsg-remote-cli`, and `lanmsg-server`
+for an admin's own manual relay upgrade) build locally, no CI:**
+`scripts/pi-release.sh`, run on the Pi (or any machine with Go 1.27+, as a
+plain shell session — *not* inside `lanmsg-server.service`, whose
+`ProtectSystem=strict` blocks a writable source tree). Cross-compiles all
+six OS/arch combinations for each CLI plus `android/arm64` for
+`lanmsg-remote-cli` (Termux), with `CGO_ENABLED=0`.
 
-1. cross-compiles `lanmsg-server` + `lanmsg-cli` for every OS/arch from one Linux
-   runner (`CGO_ENABLED=0`);
-2. builds the GUI on native runners — `ubuntu-latest`, `macos-latest`,
-   `windows-latest` — so each `.app` / `.exe` / tarball is produced where its
-   toolchain already lives;
-3. hashes each artifact (SHA-256) and writes a **manifest**:
+**GUI-affecting releases use GitHub Actions** (`.github/ci.yml.example`'s
+`gui-build` job, gated to version-tag pushes) — native runners
+(`ubuntu-latest`/`macos-latest`/`windows-latest`) each run `fyne package` for
+their own OS, since that's the one build CI genuinely does something the Pi
+categorically cannot. **CI never signs anything** — see "who trusts" below —
+it only uploads unsigned workflow artifacts for the admin to download.
 
-   ```json
-   {
-     "version": "1.4.0",
-     "notes": "…",
-     "artifacts": [
-       { "os": "darwin", "arch": "arm64", "url": "…", "sha256": "…" }
-     ]
-   }
-   ```
-
-4. signs the manifest with an **offline Ed25519 release key** (in CI secrets or a
-   hardware key — never on the relay);
-5. uploads the artifacts + `manifest.json` + `manifest.sig` to GitHub Releases.
+Either path produces artifacts that then get **hashed and signed on a third
+machine** (`cmd/lanmsg-signrelease`, run on a machine kept separate from both
+the Pi and CI) — not on whichever machine happened to build them. This is the
+one deliberate departure from "signing lives in CI secrets," which the
+original design (just below, historically) had allowed as an option: the
+user chose to keep signing off of every automated system, full stop, so a
+compromised Pi *or* a compromised CI run can still never push a trusted
+backdoored client.
 
 #### Who distributes: the relay
 
-So a fully offline LAN can still update. `lanmsg-server` gains an `updates/`
-directory and serves whatever manifest + artifacts you place there; a
-`lanmsg-server fetch-update` subcommand can pull the latest from GitHub for you.
-Clients download it over the connection they already hold.
+`internal/servercore/updates.go` serves whatever a release workflow placed
+under `cfg.UpdatesDir()` (`<data_dir>/updates/`) — `manifest.json`,
+`manifest.json.sig`, and `artifacts/*` — over three new routes on the
+existing HTTPS listener, unauthenticated beyond TLS (see "who trusts,"
+these files are public release info by design). A relay with nothing ever
+published there simply 404s, a normal and valid state. The originally-sketched
+`lanmsg-server fetch-update` subcommand (pulling artifacts from GitHub
+automatically) was **not built** — every release currently reaches the relay
+by the admin copying files there directly; automating that fetch remains
+future work if it turns out to matter.
 
 #### Who trusts what: the client
 
-Each client ships with the release key's **public** half compiled in. On connect
-it fetches `manifest.json` + `manifest.sig` from the relay and:
+Each client ships with the release key's **public** half compiled in
+(`internal/update.UpdatePubKey`, empty in this repo until a real release key
+exists — see `cmd/lanmsg-signrelease`). `lanmsg-cli`/`lanmsg-remote-cli`
+(the GUI never does this — see below) check after connecting:
 
-1. verifies the signature against the built-in public key — **fail ⇒ stop, the
-   update is ignored entirely**;
-2. if `manifest.version` is newer than its own, downloads the artifact for its
-   own os/arch to a temp file;
-3. checks that file's SHA-256 against the manifest;
-4. atomically replaces its own binary — on Unix: write the new file alongside the
-   old, `rename(2)` over it, re-exec; on Windows: rename the running `.exe`
-   aside, move the new one in, relaunch;
-5. restarts.
+1. fetch `manifest.json` + `manifest.json.sig`, verify the signature against
+   the built-in public key — **fail ⇒ stop, the update is ignored entirely**;
+2. verify the manifest's `seq` is strictly newer than the highest this client
+   has ever seen (persisted locally) — **not newer ⇒ reject as a possible
+   rollback**, closing a replay gap a stale or compromised relay could
+   otherwise exploit by re-serving an old, still-validly-signed manifest;
+3. look up the entry matching this binary's own `(target, os, arch)` — the
+   manifest is a flat list of per-artifact entries, not one blanket release
+   version (see the worked example below); no entry, or no newer `version`
+   for it, and the check simply ends here, quietly;
+4. download that artifact to a temp file in the executable's own directory,
+   check its SHA-256 against the manifest;
+5. atomically replace the binary — Unix: `rename(2)` over it (same
+   filesystem, so any process still holding the old file open, including
+   this one mid-syscall, keeps working against the old inode until it
+   exits); Windows: rename the running `.exe` aside first (Windows won't
+   let you overwrite a mapped-in-use executable directly), then move the new
+   one in;
+6. **only for a long-lived invocation** (`watch`) — re-exec into the new
+   binary immediately (`syscall.Exec` on Unix, spawn-detached-and-exit on
+   Windows). One-shot commands (`enroll`/`send`/`status`/`roster`) just swap
+   the file and let the *next* invocation naturally run the new binary —
+   there's no live session worth restarting into.
 
-`github.com/creativeprojects/go-selfupdate` (the maintained descendant of
-`inconshreveable/go-update`) implements steps 2–5 and understands GitHub
-Releases. The macOS `.app` case is fiddlier — you are replacing a bundle, not a
-lone file — but replacing the inner executable is usually enough; Sparkle is the
-reference design if it is not.
+No third-party self-update library — `internal/update` is hand-rolled
+(a few hundred lines: manifest fetch/verify, download/hash-check, and the
+platform-split swap/re-exec), since the actual mechanics here (rollback-safe
+manifest fetch, per-artifact matching, one-shot-vs-long-lived swap
+semantics) didn't map cleanly onto an off-the-shelf GitHub-Releases-shaped
+updater.
+
+**Worked example** — a manifest after one CLI-only release followed by a
+release that also touched the GUI:
+
+```json
+{
+  "seq": 2,
+  "generated_at": "2026-09-22T03:42:59Z",
+  "artifacts": [
+    { "target": "lanmsg-cli", "os": "linux", "arch": "arm64", "version": "0.2.0",
+      "url": "/updates/artifacts/lanmsg-cli-linux-arm64-0.2.0", "sha256": "…", "size": 11460768 },
+    { "target": "lanmsg-remote-cli", "os": "windows", "arch": "amd64", "version": "0.3.0",
+      "url": "/updates/artifacts/lanmsg-remote-cli-windows-amd64-0.3.0.exe", "sha256": "…", "size": 11814400 },
+    { "target": "lanmsg", "os": "darwin", "arch": "arm64", "version": "0.2.0",
+      "url": "/updates/artifacts/lanmsg-darwin-arm64-0.2.0.tar.xz", "sha256": "…", "size": 19661784 }
+  ]
+}
+```
+
+`lanmsg-cli`'s entry is untouched from the previous release (`seq=1`) —
+`lanmsg-signrelease sign -prev ...` carries forward any artifact not named in
+the new release's spec, byte-for-byte. `lanmsg` entries exist for the
+banner to link to (a person can download and install it themselves) but
+`internal/update`'s auto-swap is never invoked for `target == "lanmsg"` —
+structurally impossible, not just policy, since the GUI (which shares
+`internal/clientcore`) never imports `internal/update` at all.
+`lanmsg-server`/`lanmsg-tunnel` never appear in a manifest — updating the
+relay itself stays the manual process in `docs/DEPLOY-TO-PI.html`.
 
 #### Why manifest signing is non-negotiable
 
 An auto-update path is a remote-code-execution path by definition. If updates
 were trusted merely for arriving over the relay's TLS connection, anyone who
 compromised the Pi could push a backdoored client to every machine in the house.
-With an offline signing key, a compromised relay can at worst serve a stale or
-corrupt file, which step 1 or step 3 rejects. **The relay is distribution, not
-authority.**
+With an offline signing key — kept off the Pi *and* off CI (above) — a
+compromised relay can at worst serve a stale or corrupt file, which step 1, 2,
+or 4 above rejects. **The relay is distribution, not authority.**
 
 #### Optional module: binary-delta ("bit comparison") updates
+
+**Not built** — everything below is still the original design, unaffected by
+the hybrid build/sign workflow above. `internal/update` has no `Patcher`
+interface or delta path today; every client does a whole-file download.
+Revisit if bandwidth actually becomes a constraint (see "it stops being a
+guess" below).
 
 On three machines on gigabit Ethernet, a whole 10–20 MB signed binary downloads
 in a fraction of a second, so a delta saves nothing *today*. The reasons to
@@ -1039,7 +1122,9 @@ patched by a half-finished run), step 2 fails closed and the client just fetches
 the whole file.
 
 **Modularity boundary.** A core package `internal/update` owns the manifest,
-signature check, download, hash check and atomic swap, and depends only on:
+signature check, download, hash check and atomic swap — this part is now
+real code, not just a design (see "who trusts what: the client" above) — and
+would depend only on:
 
 ```go
 // internal/updatedelta
@@ -1087,33 +1172,47 @@ lets an app install a signed APK if it was sideloaded, but the flow is clunky
 (system installer UI, an "install unknown apps" permission) and Play-distributed
 apps must update through Play. Plan on **mobile updating through the stores.**
 
-#### The common denominator: protocol version negotiation (build this first)
+#### The common denominator: protocol version negotiation (built)
 
 Every client — desktop now, mobile later — shares one small mechanism, worth
-having even before any self-update code exists. The `Envelope` is already
-versioned (§5). Extend the `ready` frame:
+having even before any self-update code exists. The `Envelope` was already
+versioned (§5); the `ready` frame (`internal/proto/messages.go`) now carries:
 
+```go
+type Ready struct {
+    DeviceID         string
+    Admin            bool
+    ServerVersion    string `json:"server_version,omitempty"`
+    MinClientVersion string `json:"min_client_version,omitempty"`
+}
 ```
-Ready{ DeviceID, Admin, ServerVersion string, MinClientVersion string }
-```
 
-- client version `< MinClientVersion` ⇒ hard stop: disconnect, tell the user to
-  update. This is the lever that forces everyone off a version with a protocol
-  break or a security bug.
-- `MinClientVersion <=` client version `< ServerVersion` ⇒ soft "update
-  available" banner.
+- Client version `< MinClientVersion` (an admin-configured floor,
+  `min_client_version` in `server.toml`, empty by default — no floor,
+  every existing deployment keeps working unchanged) ⇒ **hard stop**: the
+  relay rejects at `Hello` time with a new `client_too_old` error code,
+  before any challenge/response — cheap, and before any admin-approval logic
+  even runs. The client's `runLoop` recognizes this and stops
+  reconnecting (an `EventUpdateRequired` event; retrying would just get
+  rejected again forever).
+- `MinClientVersion ≤` client version `< ServerVersion` ⇒ soft "update
+  available" (`EventUpdateAvailable`), surfaced as a status-line banner in
+  the GUI and a stderr line in both CLIs — connection unaffected.
 
-Desktop self-update is then an optional convenience layered on this gate; mobile
-just shows the banner with a link to its store.
+Desktop self-update (`internal/update`, above) is a separate, optional
+convenience layered on top of this gate — deliberately not carried in the
+`Ready` frame itself, so the coarse protocol check never needs to know about
+manifests, and `internal/clientcore` (which the GUI shares) never needs to
+import `internal/update` at all. Mobile, when it exists, would just show the
+banner with a link to its store.
 
-**Suggested order:** (1) version fields + min-version enforcement + banner;
-(2) CI release pipeline with a signed manifest; (3) `internal/update` in the
-client — signature check, whole-file download, hash check, atomic swap + re-exec —
-and the relay serving `updates/`; (4) optional `fetch-update`; (5) the
-`internal/updatedelta` module behind the `Patcher` interface, generated in CI,
-enabled per-OS (linux/windows first) when bandwidth actually matters. Steps 1–4
-are the "make it work across OSes" path; step 5 is the separate delta module and
-does not block anything before it.
+**What shipped vs. what's still ahead:** the protocol gate, the signed
+per-artifact manifest, `internal/update`, the relay's `/updates/` routes,
+and both release workflows (Pi-local for headless binaries, GitHub Actions
+for the GUI) are all built and live-tested end to end (`DEVLOG.md`). The
+`fetch-update` convenience subcommand and the `internal/updatedelta` binary-
+delta module above remain future work — neither blocks anything that's
+already shipped.
 
 ---
 

@@ -19,7 +19,7 @@ need it on every client.
 Order of this doc: [1. the relay](#1-the-relay) → [2. a client](#2-the-client) →
 [3. verify contacts](#3-verifying-contacts) → [4. troubleshooting](#4-troubleshooting) →
 [5. reaching the relay from outside the LAN](#5-reaching-the-relay-from-outside-the-lan-optional)
-(optional).
+(optional) → [6. updates](#6-updates).
 
 ---
 
@@ -232,6 +232,14 @@ destination, and `fyne package` does not ship cross-toolchains:
 Cross-building a macOS `.app` from Linux is not practical — it needs the Apple
 SDK. Build it on a Mac.
 
+**"On Linux" means on that *architecture* too — `fyne package` never
+cross-compiles, only cross-*packages for the same architecture as the host*.**
+Run `fyne package -os linux` on the Raspberry Pi's arm64 and you get an arm64
+tarball, not an amd64 one — there's no `-arch` flag to ask for anything else,
+because the C toolchain doing the actual compiling is whatever's installed on
+the machine you ran it on. If you need an amd64 Linux desktop bundle, build it
+on an amd64 Linux machine; the Pi can only ever produce one for itself.
+
 **macOS: run the `.app`, and sign it, or notifications stay silent.** Fyne asks
 macOS for notification permission only from a *bundled* app; an unsigned bundle
 can't get that permission and Fyne falls back to `osascript`, which recent macOS
@@ -409,6 +417,12 @@ The relay isn't listening, or a firewall blocks the port. On the relay:
 `systemctl status lanmsg-server`, then `ss -tlnp 'sport = :8443'`. From a client:
 `nc -vz relay.lan 8443`.
 
+### macOS: no notification banner on new messages
+
+See [MACOS-NOTIFICATIONS.md](MACOS-NOTIFICATIONS.md) — almost always the
+signed-`.app` permission gap noted above under "Making a double-clickable
+bundle," not a code bug.
+
 ---
 
 ## 5. Reaching the relay from outside the LAN (optional)
@@ -566,3 +580,97 @@ several-second circuit-bootstrap wait before the first send of a session.
 | `lanmsg-tunnel` log shows repeated backend auth failures | `secret` mismatch between the Pi's `server.toml` and the cloud box's `tunnel.toml` | re-copy the secret from the cloud box's `setup` output; it's never re-shown, so if lost, delete `tunnel.toml` and re-run `setup` (and update the Pi's copy) |
 | Remote client's enrollment hangs on the fingerprint probe | Local Tor daemon on the remote machine isn't running, or its SOCKS port isn't `127.0.0.1:9050` | check `systemctl status tor` (or that Tor Browser is open); pass `-socks host:port` if it's different |
 | Remote client connects but everything is slow | Expected — Tor circuits add real latency, typically hundreds of milliseconds to a couple of seconds per connection, more on a fresh circuit | not a bug; this path isn't trying to feel like LAN-speed chat |
+
+---
+
+## 6. Updates
+
+Two independent mechanisms, both automatic once set up — nothing here needs
+per-client action beyond an initial software build:
+
+- **Protocol compatibility gate.** Every `ready` frame carries the relay's
+  version and (optionally) a configured minimum client version
+  (`min_client_version` in `server.toml`). A client below that minimum is
+  rejected outright and stops reconnecting; anything else just shows a
+  quiet "update available" notice. This needs no manifest, no signing key,
+  nothing published — it's built into the protocol itself.
+- **Convenience self-update.** `lanmsg-cli` and `lanmsg-remote-cli` (not the
+  desktop GUI — see below) check the relay's `/updates/manifest.json` after
+  connecting and, if there's a newer signed build for their own platform,
+  download, verify, and install it automatically. This *does* need an admin
+  to actually publish something — see below.
+
+### Why the GUI doesn't auto-update
+
+`lanmsg` only ever shows the same "update available" notice (a status-line
+banner, or a modal if the protocol gate hard-stops it) — it never downloads
+or swaps itself. Two reasons: replacing a running GUI process out from under
+someone mid-conversation is a worse experience than a CLI tool doing the
+same between invocations, and the GUI is the one binary that can't be built
+on the Pi at all (see below), so there's no low-friction way to keep it
+current without the same GitHub Actions step a manual rebuild would need
+anyway.
+
+### Publishing a release
+
+**For `lanmsg-cli` / `lanmsg-remote-cli` / `lanmsg-server` changes** — no CI,
+no GitHub dependency, entirely local:
+
+```sh
+# On the Pi (or anywhere with Go 1.27+; not inside lanmsg-server.service):
+git pull
+./scripts/pi-release.sh out/
+
+# Copy the output to a SEPARATE, trusted machine — never sign on the Pi:
+scp -r out/ youruser@your-desktop:/tmp/lanmsg-release/
+```
+
+On that separate machine, generate a release key once (keep it offline —
+password manager, hardware key, or an offline USB drive; it must never touch
+the Pi, this repo, or CI):
+
+```sh
+lanmsg-signrelease init -key ~/lanmsg-release.key
+```
+
+Paste the printed public key into `internal/update.UpdatePubKey` and rebuild
+every client — this is a one-time step per release key, not per release.
+
+Then, per release, write a small spec naming what actually changed:
+
+```json
+{
+  "artifacts": [
+    {"target": "lanmsg-cli", "os": "linux", "arch": "arm64", "version": "0.2.0",
+     "file": "/tmp/lanmsg-release/out/lanmsg-cli-linux-arm64"}
+  ]
+}
+```
+
+(Only list what changed — `lanmsg-signrelease` merges with the previous
+manifest, so an artifact you don't mention keeps its existing entry
+untouched. That's what lets a CLI-only release leave GUI users seeing
+nothing new.)
+
+```sh
+lanmsg-signrelease sign -key ~/lanmsg-release.key -spec release.json \
+    -prev /tmp/lanmsg-release/manifest.json -out-dir signed/
+```
+
+Copy `signed/`'s contents to the relay's updates directory
+(`<data_dir>/updates/` — normally `/var/lib/lanmsg/updates/` on a systemd
+install; owned by the `lanmsg` service user) and you're done. No relay
+restart needed — the new HTTP routes read fresh on every request.
+
+**For GUI-affecting releases** — enable the repo's CI once
+(`gh auth refresh -s workflow -h github.com`, then `git mv
+.github/ci.yml.example .github/workflows/ci.yml`), then push a version tag
+(`git tag v0.2.0 && git push --tags`). The `gui-build` job builds and
+uploads unsigned `.app`/`.exe`/tarball bundles as workflow artifacts —
+**CI never signs anything.** Download them, then follow the same signing
+steps above on your trusted machine, adding `lanmsg`'s `(os, arch)` entries
+to the same release spec.
+
+See [DEPLOY-TO-PI.html](DEPLOY-TO-PI.html) for the parallel walkthrough of
+upgrading the relay binary itself (a separate, simpler operation — the relay
+doesn't self-update, an admin just installs a new binary and restarts).

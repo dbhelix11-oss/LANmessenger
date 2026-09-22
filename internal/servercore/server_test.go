@@ -20,6 +20,12 @@ import (
 const testPassphrase = "kitchen table 42"
 
 func newTestServer(t *testing.T, requireApproval bool) string {
+	return newTestServerCfg(t, func(cfg *Config) { cfg.RequireAdminApproval = requireApproval })
+}
+
+// newTestServerCfg is newTestServer with a hook to set additional config
+// fields (e.g. MinClientVersion) before the server starts.
+func newTestServerCfg(t *testing.T, mutate func(*Config)) string {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -28,10 +34,12 @@ func newTestServer(t *testing.T, requireApproval bool) string {
 		t.Fatalf("verifier: %v", err)
 	}
 	cfg := &Config{
-		DataDir:              dir,
-		Passphrase:           verifier,
-		RequireAdminApproval: requireApproval,
-		HeartbeatSeconds:     3600, // don't ping during short tests
+		DataDir:          dir,
+		Passphrase:       verifier,
+		HeartbeatSeconds: 3600, // don't ping during short tests
+	}
+	if mutate != nil {
+		mutate(cfg)
 	}
 	cfg.SetPath(dir + "/server.toml")
 	cfg.applyDefaults()
@@ -344,5 +352,67 @@ func TestBadPassphraseRejected(t *testing.T) {
 	defer cancel()
 	if _, _, err := c.ws.Read(ctx); err == nil {
 		t.Fatal("expected connection to be closed after bad passphrase")
+	}
+}
+
+func TestClientTooOldRejected(t *testing.T) {
+	addr := newTestServerCfg(t, func(cfg *Config) { cfg.MinClientVersion = "0.5.0" })
+	c := newClient(t, addr)
+	defer c.close()
+
+	c.send(proto.TypeHello, proto.Hello{ClientVersion: "0.1.0"})
+
+	// Expect an error frame, then the connection to close, with no auth
+	// challenge in between.
+	env := c.recv()
+	if env.Type != proto.TypeError {
+		t.Fatalf("expected error frame, got %s", env.Type)
+	}
+	var e proto.ErrorBody
+	if err := env.Unmarshal(&e); err != nil {
+		t.Fatalf("unmarshal error body: %v", err)
+	}
+	if e.Code != proto.ErrClientTooOld {
+		t.Fatalf("error code = %q, want %q", e.Code, proto.ErrClientTooOld)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, _, err := c.ws.Read(ctx); err == nil {
+		t.Fatal("expected connection to be closed after client_too_old")
+	}
+}
+
+// TestClientVersionEmptyFailsOpen confirms a client that sends no version at
+// all is never rejected by MinClientVersion (only a version that's present
+// and too old is) — it should get all the way to ready.
+func TestClientVersionEmptyFailsOpen(t *testing.T) {
+	addr := newTestServerCfg(t, func(cfg *Config) { cfg.MinClientVersion = "0.5.0" })
+	c := newClient(t, addr)
+	defer c.close()
+
+	c.send(proto.TypeHello, proto.Hello{}) // no ClientVersion
+	ch := c.recvType(proto.TypeAuthChallenge)
+	var chal proto.AuthChallenge
+	_ = ch.Unmarshal(&chal)
+	nonce, _ := base64.StdEncoding.DecodeString(chal.Nonce)
+	salt, _ := base64.StdEncoding.DecodeString(chal.Salt)
+	proof := crypto.Proof(crypto.DeriveKey(testPassphrase, salt), nonce)
+	c.send(proto.TypeAuthResponse, proto.AuthResponse{Proof: base64.StdEncoding.EncodeToString(proof)})
+	c.send(proto.TypeEnroll, proto.Enroll{
+		DisplayName: "no-version-device",
+		SignPub:     crypto.EncodeSignPub(c.id.SignPub),
+		BoxPub:      crypto.EncodeKey(c.id.BoxPub),
+	})
+	res := c.recvType(proto.TypeEnrollResult)
+	var er proto.EnrollResult
+	_ = res.Unmarshal(&er)
+	if er.State != proto.StateActive {
+		t.Fatalf("expected active, got %s", er.State)
+	}
+	ready := c.recvType(proto.TypeReady)
+	var rd proto.Ready
+	_ = ready.Unmarshal(&rd)
+	if rd.MinClientVersion != "0.5.0" {
+		t.Fatalf("Ready.MinClientVersion = %q, want 0.5.0", rd.MinClientVersion)
 	}
 }

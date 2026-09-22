@@ -20,9 +20,8 @@ import (
 
 	"lanmessenger/internal/crypto"
 	"lanmessenger/internal/proto"
+	"lanmessenger/internal/version"
 )
-
-const clientVersion = "0.1.0"
 
 // wsConn wraps a websocket connection with a serialized writer.
 type wsConn struct {
@@ -206,7 +205,7 @@ type handshakeResult struct {
 func (c *Client) handshake(ctx context.Context, w *wsConn, enroll *proto.Enroll) (handshakeResult, error) {
 	var res handshakeResult
 
-	hello := proto.Hello{ClientVersion: clientVersion}
+	hello := proto.Hello{ClientVersion: version.Version}
 	if enroll == nil {
 		hello.DeviceID = c.cfg.DeviceID
 	}
@@ -217,6 +216,11 @@ func (c *Client) handshake(ctx context.Context, w *wsConn, enroll *proto.Enroll)
 	env, err := w.read(ctx)
 	if err != nil {
 		return res, err
+	}
+	if env.Type == proto.TypeError {
+		var e proto.ErrorBody
+		_ = env.Unmarshal(&e)
+		return res, &RelayError{Code: e.Code, Message: e.Message}
 	}
 	if env.Type != proto.TypeAuthChallenge {
 		return res, unexpected(env, "auth_challenge")
@@ -276,6 +280,7 @@ func (c *Client) handshake(ctx context.Context, w *wsConn, enroll *proto.Enroll)
 			if err := env.Unmarshal(&rd); err != nil {
 				return res, err
 			}
+			c.applyProtocolGate(rd)
 			res.state = StateReady
 			res.admin = rd.Admin
 			return res, nil
@@ -290,6 +295,20 @@ func (c *Client) handshake(ctx context.Context, w *wsConn, enroll *proto.Enroll)
 
 func unexpected(env *proto.Envelope, want string) error {
 	return fmt.Errorf("clientcore: expected %s from relay, got %s", want, env.Type)
+}
+
+// applyProtocolGate records the relay's reported version and, if it's newer
+// than this build's own version.Version, emits a soft EventUpdateAvailable.
+// A client build too old to be allowed here at all is rejected by the relay
+// at Hello time (ErrClientTooOld), surfacing as a RelayError rather than a
+// Ready frame — that hard-stop path never reaches this method.
+func (c *Client) applyProtocolGate(rd proto.Ready) {
+	c.mu.Lock()
+	c.serverVersion = rd.ServerVersion
+	c.mu.Unlock()
+	if rd.ServerVersion != "" && version.Newer(rd.ServerVersion, version.Version) {
+		c.emit(Event{Kind: EventUpdateAvailable, ServerVersion: rd.ServerVersion})
+	}
 }
 
 // RelayError is an error frame received from the relay.

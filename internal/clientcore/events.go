@@ -38,6 +38,14 @@ const (
 	EventFileProgress   EventKind = "file_progress"   // a file transfer advanced
 	EventError          EventKind = "error"           // a non-fatal error worth surfacing
 	EventPendingChanged EventKind = "pending_changed" // the admin pending-device list may have changed
+
+	// EventUpdateAvailable: the relay is running a newer version than this
+	// client build. Soft notice only — the connection is unaffected.
+	EventUpdateAvailable EventKind = "update_available"
+	// EventUpdateRequired: the relay rejected this build as too old
+	// (ErrClientTooOld). runLoop has already stopped retrying — the
+	// connection will not come back until the binary is updated.
+	EventUpdateRequired EventKind = "update_required"
 )
 
 // Event is a single notification for the UI. Only the fields relevant to Kind
@@ -45,14 +53,15 @@ const (
 type Event struct {
 	Kind EventKind
 
-	State    ConnState             // EventConnState
-	PeerID   string                // EventPresence, EventKeyChanged, EventMessageState, EventFileProgress
-	Presence *proto.PresenceUpdate // EventPresence
-	Message  *Message              // EventMessage
-	MsgID    string                // EventMessageState
-	MsgState MessageState          // EventMessageState
-	Progress *FileProgress         // EventFileProgress
-	Err      error                 // EventError
+	State         ConnState             // EventConnState
+	PeerID        string                // EventPresence, EventKeyChanged, EventMessageState, EventFileProgress
+	Presence      *proto.PresenceUpdate // EventPresence
+	Message       *Message              // EventMessage
+	MsgID         string                // EventMessageState
+	MsgState      MessageState          // EventMessageState
+	Progress      *FileProgress         // EventFileProgress
+	Err           error                 // EventError
+	ServerVersion string                // EventUpdateAvailable
 }
 
 // FileProgress reports how far a file transfer has got.

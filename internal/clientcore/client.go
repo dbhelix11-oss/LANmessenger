@@ -34,12 +34,13 @@ type Client struct {
 
 	events chan Event
 
-	mu           sync.RWMutex
-	state        ConnState
-	admin        bool
-	conn         *wsConn
-	desired      proto.PresenceSet
-	peerPresence map[string]proto.PresenceUpdate
+	mu            sync.RWMutex
+	state         ConnState
+	admin         bool
+	serverVersion string
+	conn          *wsConn
+	desired       proto.PresenceSet
+	peerPresence  map[string]proto.PresenceUpdate
 
 	pendingMu sync.Mutex
 	pending   map[string]chan *proto.Envelope
@@ -112,6 +113,27 @@ func (c *Client) IsAdmin() bool {
 	defer c.mu.RUnlock()
 	return c.admin
 }
+
+// ServerVersion returns the relay's version as reported on the most recent
+// ready frame (empty until the first successful connect).
+func (c *Client) ServerVersion() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.serverVersion
+}
+
+// TLSConfig returns the same pinned TLS config (trust on first use, per
+// cfg.CertFingerprint) this client uses for its relay connection — for
+// callers (e.g. internal/update) that need to talk to the same relay over a
+// separate connection without re-deriving or weakening that trust.
+func (c *Client) TLSConfig() *tls.Config { return c.tlsConfig }
+
+// ServerAddr returns the relay's host:port, as configured.
+func (c *Client) ServerAddr() string { return c.cfg.ServerAddr }
+
+// SOCKSProxy returns the configured SOCKS5 proxy address (empty for a direct
+// connection), as configured — e.g. for a remote client routing over Tor.
+func (c *Client) SOCKSProxy() string { return c.cfg.SOCKSProxy }
 
 // SetPassphrase sets (and persists) the household passphrase used for the relay
 // handshake.
@@ -235,9 +257,13 @@ func (c *Client) runLoop(ctx context.Context) {
 		}
 		if err != nil {
 			var re *RelayError
-			if errors.As(err, &re) && (re.Code == proto.ErrAuthFailed || re.Code == proto.ErrForbidden) {
-				c.emitError(fmt.Errorf("relay rejected this device: %w", err))
-				return // no point retrying with the same credentials
+			if errors.As(err, &re) && (re.Code == proto.ErrAuthFailed || re.Code == proto.ErrForbidden || re.Code == proto.ErrClientTooOld) {
+				if re.Code == proto.ErrClientTooOld {
+					c.emit(Event{Kind: EventUpdateRequired})
+				} else {
+					c.emitError(fmt.Errorf("relay rejected this device: %w", err))
+				}
+				return // no point retrying — the relay will keep rejecting this binary/these credentials
 			}
 			c.log.Debug("relay connection ended", "err", err)
 		}

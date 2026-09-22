@@ -33,6 +33,13 @@ type Config struct {
 	// The first device to enroll on a fresh server is added here automatically.
 	AdminDevices []string `toml:"admin_devices"`
 
+	// MinClientVersion, when set, rejects any client whose Hello.ClientVersion
+	// compares older (internal/version.Compare) with ErrClientTooOld. Empty
+	// (the default) enforces no floor — every existing config file keeps
+	// working unchanged. A client that sends no version at all is never
+	// rejected by this check; only a version that's present and too old is.
+	MinClientVersion string `toml:"min_client_version,omitempty"`
+
 	// QueueRetentionHours is how long an undelivered queued message lives before
 	// it is dropped. 0 means keep until delivered.
 	QueueRetentionHours int `toml:"queue_retention_hours"`
@@ -202,6 +209,14 @@ func (c *Config) CertPath() string { return filepath.Join(c.resolve(c.DataDir), 
 
 // KeyPath is the TLS private key location.
 func (c *Config) KeyPath() string { return filepath.Join(c.resolve(c.DataDir), "server.key") }
+
+// UpdatesDir holds the self-update manifest, its signature, and the
+// artifact files it references (see internal/update and
+// cmd/lanmsg-signrelease). A release workflow populates it directly; the
+// relay only ever serves it read-only (see updates.go). Its absence is a
+// normal, valid state — a relay with no release ever signed onto it simply
+// has nothing to offer.
+func (c *Config) UpdatesDir() string { return filepath.Join(c.resolve(c.DataDir), "updates") }
 
 // EnsureDataDir creates the data directory if it does not exist.
 func (c *Config) EnsureDataDir() error {

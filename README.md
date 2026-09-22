@@ -50,11 +50,19 @@ run end to end (wizard → enrol → chat → file transfer) against a live rela
   verification, admin panel.
 - **Terminal client** (`cmd/lanmsg-cli`): `enroll` / `roster` / `send` /
   `status` / `watch`.
+- **Client auto-update**: a protocol version gate (`ready` frame; hard-stops
+  a too-old build, soft-banners an available one) plus a signed, per-artifact
+  manifest (`internal/update`, `cmd/lanmsg-signrelease`) that `lanmsg-cli` and
+  `lanmsg-remote-cli` check on every connect and self-update from — the relay
+  only ever distributes, never builds or signs. See
+  [DESIGN.md §12.2](docs/DESIGN.md#122-client-updates--who-builds-who-distributes-who-trusts)
+  and [SETUP.md §6](docs/SETUP.md#6-updates) for the full design and the
+  release workflow.
 - **Deferred to v2:** group rooms, per-person (multi-device) identity, forward
   secrecy (double ratchet), a local web front-end, mobile apps, auto-away on OS
-  idle, [paging](docs/DESIGN.md#121-paging--a-high-priority-get-back-here-alert)
-  (high-priority attention alerts) and a
-  [signed client-update system](docs/DESIGN.md#122-client-updates--who-builds-who-distributes-who-trusts).
+  idle, and
+  [paging](docs/DESIGN.md#121-paging--a-high-priority-get-back-here-alert)
+  (high-priority attention alerts).
 
 ## Building
 

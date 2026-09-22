@@ -14,6 +14,7 @@ func (g *guiApp) buildTray() {
 		return
 	}
 	g.hasTray = true
+	desk.SetSystemTrayIcon(normalTrayIcon())
 	desk.SetSystemTrayMenu(g.trayMenu())
 }
 
@@ -30,6 +31,10 @@ func (g *guiApp) trayMenu() *fyne.Menu {
 		g.trayHidden.Store(false)
 		g.win.Show()
 		g.win.RequestFocus()
+		if c := g.win.Content(); c != nil {
+			c.Refresh()
+		}
+		g.clearUnread()
 	})
 
 	var current proto.Status

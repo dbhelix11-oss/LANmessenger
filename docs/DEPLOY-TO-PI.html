@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lanmessenger — Deploying an Update to the Relay</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1c2024;
+    --muted: #5b6570;
+    --rule: #e3e6ea;
+    --accent: #3b5bdb;
+    --code-bg: #f5f6f8;
+    --code-fg: #1c2024;
+    --note-bg: #eef2ff;
+    --note-br: #3b5bdb;
+    --warn-bg: #fff4e5;
+    --warn-br: #d98324;
+    --tip-bg: #e8f6ee;
+    --tip-br: #2f9e5f;
+    --kbd-bg: #e9ecef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --fg: #dfe3e8;
+      --muted: #9aa4b0;
+      --rule: #2b2f36;
+      --accent: #8aa4ff;
+      --code-bg: #1e2127;
+      --code-fg: #e6e9ee;
+      --note-bg: #1b2333;
+      --note-br: #5f7dff;
+      --warn-bg: #2c2418;
+      --warn-br: #d98324;
+      --tip-bg: #16281e;
+      --tip-br: #2f9e5f;
+      --kbd-bg: #2b2f36;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 3rem 1.4rem 6rem;
+  }
+  header.doc {
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 1.2rem;
+    margin-bottom: 2rem;
+  }
+  header.doc h1 { margin: 0 0 .3rem; font-size: 2rem; letter-spacing: -.01em; }
+  header.doc p { margin: 0; color: var(--muted); }
+  h2 {
+    margin: 2.8rem 0 .8rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--rule);
+    font-size: 1.4rem;
+    letter-spacing: -.01em;
+  }
+  h3 { margin: 1.8rem 0 .5rem; font-size: 1.12rem; }
+  h4 { margin: 1.3rem 0 .4rem; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  p, li { margin: .5rem 0; }
+  a { color: var(--accent); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .89em;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: .12em .4em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 1rem 1.1rem;
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+    overflow-x: auto;
+    font-size: .88rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .callout {
+    margin: 1rem 0;
+    padding: .8rem 1rem;
+    border-left: 4px solid var(--note-br);
+    background: var(--note-bg);
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-color: var(--warn-br); background: var(--warn-bg); }
+  .callout.tip  { border-color: var(--tip-br);  background: var(--tip-bg); }
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong.label { display: inline-block; margin-right: .3em; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: .93rem;
+  }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  kbd {
+    font-family: ui-monospace, monospace;
+    background: var(--kbd-bg);
+    border-radius: 4px;
+    padding: .1em .4em;
+    font-size: .85em;
+  }
+  nav.toc {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 2rem 0;
+  }
+  nav.toc h2 { border: 0; margin: 0 0 .5rem; padding: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  nav.toc ol { margin: 0; padding-left: 1.3rem; }
+  nav.toc ol ol { padding-left: 1.1rem; margin: .2rem 0; }
+  nav.toc li { margin: .18rem 0; }
+  nav.toc a { text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  footer.doc {
+    margin-top: 4rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  .lead { font-size: 1.05rem; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+  .step-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 999px;
+    width: 1.6em;
+    height: 1.6em;
+    line-height: 1.6em;
+    text-align: center;
+    font-size: .85em;
+    font-weight: 600;
+    margin-right: .5em;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <h1>lanmessenger — Deploying an Update to the Relay</h1>
+  <p>Take a newly committed build, install it on the Raspberry Pi relay, and independently verify its certificate from a second computer before trusting it.</p>
+</header>
+
+<p class="lead">
+  This walks through the full loop for shipping a code change to the relay
+  (<code>lanmsg-server</code>) that's already running in the house: build it from a
+  specific commit, copy it to the Pi, install it in place of the running binary, and
+  confirm the relay is healthy afterward. The last part covers the step this project's
+  trust model actually depends on — <strong>verifying the relay's TLS certificate
+  fingerprint from a machine other than the one you built or deployed from</strong>,
+  so trust in the relay never rests on a single computer or a single network hop.
+</p>
+
+<div class="callout">
+  <p><strong class="label">What "signing the certificate" means here.</strong>
+  lanmessenger doesn't use a certificate authority — the relay generates its own
+  self-signed TLS certificate the first time it runs, and every client pins its
+  <strong>SHA-256 fingerprint</strong> on first connect (trust-on-first-use, the same
+  model SSH uses for host keys). There's no CA step to run. "Signing" in practice means
+  <strong>independently confirming that fingerprint from a second source</strong> — if
+  an attacker can only intercept traffic on <em>one</em> of the two machines you check
+  from, the two fingerprints won't match, and you'll know before any client ever
+  connects to a tampered relay.</p>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#before">Before you start</a></li>
+    <li><a href="#step1">Build the new version</a></li>
+    <li><a href="#step2">Copy it to the Pi</a></li>
+    <li><a href="#step3">Install it and restart the relay</a></li>
+    <li><a href="#step4">Confirm the relay came back up healthy</a></li>
+    <li><a href="#step5">Verify the certificate from another computer</a></li>
+    <li><a href="#step6">If the fingerprint actually changed</a></li>
+    <li><a href="#rollback">Rolling back</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================= -->
+<h2 id="before">Before you start</h2>
+
+<p>You'll be touching three different machines in this walkthrough — keep them
+straight, since the whole point of the last step is that they're independent of
+each other:</p>
+
+<table>
+  <tr><th>Machine</th><th>Role</th></tr>
+  <tr><td><strong>Build machine</strong></td><td>Your desktop — has the git checkout, builds the new binary.</td></tr>
+  <tr><td><strong>The relay</strong></td><td>The Raspberry Pi — receives and runs the new binary.</td></tr>
+  <tr><td><strong>Verification machine</strong></td><td>A <em>third</em>, separate computer (a laptop, a phone with an SSH/OpenSSL-capable terminal app, another desktop) — fetches the relay's certificate independently, to compare against what the relay reports about itself.</td></tr>
+</table>
+
+<div class="callout tip">
+  <p><strong class="label">Tip.</strong> The verification machine doesn't need
+  lanmessenger installed at all — it only needs <code>openssl</code>, which is
+  preinstalled on virtually every Mac, Linux box, and WSL environment.</p>
+</div>
+
+<p>You'll also need:</p>
+<ul>
+  <li>SSH access to the Pi with a user that can <code>sudo</code>.</li>
+  <li>The commit you want to deploy, checked out on the build machine (<code>git log -1</code>
+      to confirm you're where you think you are).</li>
+</ul>
+
+<!-- ============================================================= -->
+<h2 id="step1"><span class="step-badge">1</span>Build the new version</h2>
+
+<p>On the <strong>build machine</strong>, in the repo checkout, make sure you're on the
+commit you actually want to ship, then cross-compile for the Pi. The relay is
+cgo-free (pure-Go SQLite, no C dependencies), so this works with nothing more than a
+plain Go install — no cross-toolchain needed, even from a completely different OS:</p>
+
+<pre><code>cd LANmessenger
+git status               # working tree should be clean
+git log -1 --oneline     # confirm this is the commit you mean to deploy
+
+# 64-bit Raspberry Pi OS (Pi 3 / 4 / 5) — on the Pi, `uname -m` says aarch64:
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" \
+    -o lanmsg-server-arm64 ./cmd/lanmsg-server
+
+# 32-bit Raspberry Pi OS instead:
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" \
+    -o lanmsg-server-armhf ./cmd/lanmsg-server</code></pre>
+
+<p><code>-trimpath -ldflags="-s -w"</code> strips local file paths and debug symbols —
+smaller binary, nothing that identifies your build machine's filesystem layout.</p>
+
+<div class="callout">
+  <p><strong class="label">Sanity check.</strong> Run <code>file lanmsg-server-arm64</code>
+  and confirm it says <code>ELF 64-bit ... ARM aarch64</code> (or the 32-bit equivalent) —
+  catching a wrong-architecture build here is a lot less annoying than catching it via
+  <code>status=203/EXEC</code> on the Pi later.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="step2"><span class="step-badge">2</span>Copy it to the Pi</h2>
+
+<pre><code>scp lanmsg-server-arm64 youruser@relay.lan:/tmp/</code></pre>
+
+<p>Swap in the Pi's actual hostname or IP. If you don't remember it, it's whatever
+you used in <code>ExecStart=</code> / your SSH config when you first set the relay up
+(see <code>docs/SETUP.md</code>).</p>
+
+<!-- ============================================================= -->
+<h2 id="step3"><span class="step-badge">3</span>Install it and restart the relay</h2>
+
+<p>SSH into the Pi. Installing a new binary over the running one is safe on Linux —
+the currently-running process keeps using its own file handle until it actually
+restarts — so there's no need to stop the service first:</p>
+
+<pre><code>ssh youruser@relay.lan
+
+sudo install -m 755 /tmp/lanmsg-server-arm64 /usr/local/bin/lanmsg-server
+sudo systemctl restart lanmsg-server</code></pre>
+
+<div class="callout tip">
+  <p><strong class="label">This preserves everything.</strong> <code>systemctl restart</code>
+  re-execs the same unit with the same <code>-config /etc/lanmsg/server.toml</code> it
+  always used. The relay only <em>generates</em> a TLS certificate and passphrase
+  verifier when they don't already exist (<code>lanmsg-server setup</code> is a
+  one-time step) — an in-place upgrade like this reuses the existing certificate,
+  database, and config untouched. That means the fingerprint every client already has
+  pinned keeps working with <strong>no client-side changes needed</strong>, and Step 6
+  below is normally a no-op you're just confirming, not something you have to act on.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="step4"><span class="step-badge">4</span>Confirm the relay came back up healthy</h2>
+
+<pre><code>sudo systemctl status lanmsg-server
+journalctl -u lanmsg-server -n 20 --no-pager</code></pre>
+
+<p>You should see <code>active (running)</code> and a log line noting the relay is
+listening. While you're here, ask the relay itself what its current certificate's
+fingerprint is — you'll need this value in the next step:</p>
+
+<pre><code>sudo -u lanmsg lanmsg-server fingerprint -config /etc/lanmsg/server.toml</code></pre>
+
+<p>This prints something like:</p>
+<pre><code>a1:b2:c3:d4:e5:f6:07:18:29:3a:4b:5c:6d:7e:8f:90:...</code></pre>
+
+<p>Keep this terminal open — you'll compare against it in a moment.</p>
+
+<!-- ============================================================= -->
+<h2 id="step5"><span class="step-badge">5</span>Verify the certificate from another computer</h2>
+
+<p>Now switch to the <strong>verification machine</strong> — not the Pi, and ideally
+not the build machine either, since the point is to get a second, independently
+obtained reading of what the relay is actually presenting over the network right
+now. Fetch its certificate directly with <code>openssl</code> (no lanmessenger
+install required):</p>
+
+<pre><code>echo | openssl s_client -connect relay.lan:8443 2>/dev/null | \
+    openssl x509 -noout -fingerprint -sha256</code></pre>
+
+<p>That prints something like:</p>
+<pre><code>SHA256 Fingerprint=A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90:...</code></pre>
+
+<div class="callout warn">
+  <p><strong class="label">Case doesn't matter, everything else does.</strong>
+  <code>openssl</code> prints hex in <strong>uppercase</strong>;
+  <code>lanmsg-server fingerprint</code> prints it in <strong>lowercase</strong>. That
+  difference is cosmetic — lowercase the <code>openssl</code> output (or eyeball it
+  letter-by-letter) and compare the colon-separated hex pairs against what Step 4
+  printed. They must match <strong>exactly</strong>, byte for byte. If they don't,
+  stop — do not approve this on any client, and see the warning below.</p>
+</div>
+
+<div class="callout warn">
+  <p><strong class="label">If the two fingerprints don't match.</strong> Something
+  between the two machines is intercepting or altering the connection to the relay, or
+  you connected to the wrong host. Do not proceed. Check that <code>relay.lan</code>
+  actually resolves to the Pi from the verification machine's network path
+  (<code>dig relay.lan</code> / <code>nslookup relay.lan</code>), and that nothing
+  upstream (a captive portal, a proxy, a misconfigured router) is terminating TLS on
+  its behalf. Only continue once both machines agree.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="step6"><span class="step-badge">6</span>If the fingerprint actually changed</h2>
+
+<p>An in-place upgrade (Steps 1–3 above) never changes the certificate — so if you
+followed those steps exactly, the fingerprint you just verified should be
+<strong>identical to the one every client already has pinned</strong>, and there's
+nothing further to do. This step only applies if you deliberately wiped
+<code>/var/lib/lanmsg/</code> or otherwise forced a fresh <code>lanmsg-server setup</code>
+(a new certificate is generated only then):</p>
+
+<ul>
+  <li>Every client will see a fingerprint mismatch on its next connection attempt and
+      refuse to proceed automatically — this is correct, expected behavior, not a bug.</li>
+  <li>Give each device's owner the <strong>newly verified</strong> fingerprint (the one
+      you just confirmed matches from two independent machines) through some channel
+      other than the relay itself — in person, a phone call, a messaging app you
+      already trust. Never just paste it into a channel that itself depends on the
+      relay you're trying to verify.</li>
+  <li>Each client explicitly accepts the new fingerprint when prompted, or clears its
+      stored one and re-enrolls. See <code>docs/SETUP.md</code>'s "Verifying contacts"
+      section for the full client-side flow.</li>
+</ul>
+
+<!-- ============================================================= -->
+<h2 id="rollback">Rolling back</h2>
+
+<p>Before you overwrite it in Step 3, it's worth keeping the previous binary around in
+case the new version misbehaves:</p>
+
+<pre><code># On the Pi, before installing the new one:
+sudo cp /usr/local/bin/lanmsg-server /usr/local/bin/lanmsg-server.previous
+
+# If the new version needs to be rolled back:
+sudo cp /usr/local/bin/lanmsg-server.previous /usr/local/bin/lanmsg-server
+sudo systemctl restart lanmsg-server</code></pre>
+
+<p>Rolling back the binary never touches <code>/etc/lanmsg/</code> or
+<code>/var/lib/lanmsg/</code>, so the certificate, passphrase, and message queue are
+unaffected either way.</p>
+
+<!-- ============================================================= -->
+<h2 id="trouble">Troubleshooting</h2>
+
+<table>
+  <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+  <tr>
+    <td><code>status=203/EXEC</code></td>
+    <td>Wrong architecture, or the binary isn't executable</td>
+    <td><code>file /usr/local/bin/lanmsg-server</code> — confirm it matches the Pi's
+        real architecture (<code>uname -m</code>); redo Step 1 with the right
+        <code>GOARCH</code>.</td>
+  </tr>
+  <tr>
+    <td>Service won't start, log mentions <code>permission denied</code></td>
+    <td><code>/etc/lanmsg</code> or <code>/var/lib/lanmsg</code> ownership got clobbered</td>
+    <td><code>sudo chown -R lanmsg:lanmsg /etc/lanmsg /var/lib/lanmsg</code></td>
+  </tr>
+  <tr>
+    <td>Step 5's two fingerprints don't match</td>
+    <td>See the warning under Step 5 — possible interception, or wrong hostname</td>
+    <td>Do not proceed; investigate before any client connects</td>
+  </tr>
+  <tr>
+    <td><code>openssl s_client</code> hangs or refuses to connect</td>
+    <td>The relay isn't listening, or a firewall blocks port 8443 from the verification
+        machine's network</td>
+    <td>On the Pi: <code>sudo ss -tlnp 'sport = :8443'</code>. From the verification
+        machine: <code>nc -vz relay.lan 8443</code>.</td>
+  </tr>
+  <tr>
+    <td>Clients report a fingerprint mismatch after what you thought was a routine upgrade</td>
+    <td><code>/var/lib/lanmsg/</code> was wiped or <code>setup</code> got re-run
+        somehow, generating a new certificate</td>
+    <td>Follow Step 6 — this is the fresh-certificate case, not a bug</td>
+  </tr>
+</table>
+
+<footer class="doc">
+  <p>Related: <code>docs/SETUP.md</code> (full relay + client setup) &middot;
+  <code>docs/INSTALL.html</code> (installing Go, first-time relay setup) &middot;
+  <code>docs/DESIGN.md</code> (why trust-on-first-use instead of a CA, and the planned
+  signed auto-update system this manual process will eventually feed into).</p>
+  <p>Repository: <a href="https://github.com/dbhelix11-oss/LANmessenger">github.com/dbhelix11-oss/LANmessenger</a></p>
+</footer>
+
+</div>
+</body>
+</html>

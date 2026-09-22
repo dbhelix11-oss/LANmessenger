@@ -170,6 +170,7 @@ func cmdEnroll(dir, socks string, args []string) error {
 		fmt.Println("Enrolled. Waiting for an admin to approve this device.")
 	default:
 		fmt.Println("Enrolled and active.")
+		checkForUpdateOneShot(cl, dir)
 	}
 	return nil
 }
@@ -226,6 +227,7 @@ func cmdSend(dir, socks string, args []string) error {
 	case <-time.After(1500 * time.Millisecond):
 	}
 	fmt.Println("sent")
+	checkForUpdateOneShot(cl, dir)
 	return nil
 }
 
@@ -263,6 +265,9 @@ func cmdWatch(dir, socks string) error {
 			switch ev.Kind {
 			case clientcore.EventConnState:
 				fmt.Printf("[conn] %s\n", ev.State)
+				if ev.State == clientcore.StateReady {
+					go checkForUpdateReexec(cl, dir)
+				}
 			case clientcore.EventMessage:
 				if ev.Message != nil && ev.Message.Direction == clientcore.DirIn {
 					fmt.Printf("[msg] %s: %s\n", nameFor(cl, ev.PeerID), ev.Message.Body)
@@ -278,6 +283,11 @@ func cmdWatch(dir, socks string) error {
 				}
 			case clientcore.EventError:
 				fmt.Printf("[error] %v\n", ev.Err)
+			case clientcore.EventUpdateAvailable:
+				fmt.Fprintf(os.Stderr, "[update] relay is on v%s; this build is older\n", ev.ServerVersion)
+			case clientcore.EventUpdateRequired:
+				fmt.Fprintln(os.Stderr, "[update] this build is too old for the relay; update and re-run")
+				os.Exit(1)
 			}
 		}
 	}

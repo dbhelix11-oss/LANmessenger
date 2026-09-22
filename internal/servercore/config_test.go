@@ -47,6 +47,54 @@ func TestConfigSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfigMinClientVersionRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.toml")
+
+	v, err := crypto.NewPassphraseVerifier("open sesame")
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	c := &Config{Passphrase: v, MinClientVersion: "0.5.0"}
+	c.SetPath(path)
+	c.applyDefaults()
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got.MinClientVersion != "0.5.0" {
+		t.Fatalf("MinClientVersion = %q, want 0.5.0", got.MinClientVersion)
+	}
+}
+
+func TestConfigMinClientVersionDefaultsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.toml")
+
+	v, err := crypto.NewPassphraseVerifier("open sesame")
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	c := &Config{Passphrase: v}
+	c.SetPath(path)
+	c.applyDefaults()
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got.MinClientVersion != "" {
+		t.Fatalf("MinClientVersion = %q, want empty (no floor)", got.MinClientVersion)
+	}
+}
+
 func TestLoadConfigRejectsMissingPassphrase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.toml")
 	if err := os.WriteFile(path, []byte(`listen_addr = "127.0.0.1:1"`), 0o600); err != nil {

@@ -126,6 +126,9 @@ func (s *Server) serveHTTP(ctx context.Context, ln net.Listener) error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	mux.HandleFunc("/updates/manifest.json", s.handleUpdatesManifest)
+	mux.HandleFunc("/updates/manifest.json.sig", s.handleUpdatesSig)
+	mux.HandleFunc("/updates/artifacts/", s.handleUpdatesArtifact)
 
 	httpSrv := &http.Server{
 		Handler:           mux,

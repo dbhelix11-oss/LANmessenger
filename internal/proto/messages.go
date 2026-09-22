@@ -163,9 +163,18 @@ type EnrollResult struct {
 
 // Ready signals that authentication is complete and the client is now active.
 // It is not sent while a device is Pending.
+//
+// ServerVersion and MinClientVersion are the relay's coarse protocol
+// compatibility gate: a client older than MinClientVersion is rejected before
+// it ever gets here (see ErrClientTooOld), so their presence in Ready only
+// ever means "you're allowed to connect, but a newer build exists." This is
+// deliberately separate from per-binary self-update version checks, which are
+// manifest-driven (internal/update) rather than carried on this frame.
 type Ready struct {
-	DeviceID string `json:"device_id"`
-	Admin    bool   `json:"admin"`
+	DeviceID         string `json:"device_id"`
+	Admin            bool   `json:"admin"`
+	ServerVersion    string `json:"server_version,omitempty"`
+	MinClientVersion string `json:"min_client_version,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -382,14 +391,15 @@ func AdminActionMessage(action, deviceID string) []byte {
 
 // Error codes used in [ErrorBody].
 const (
-	ErrBadRequest  = "bad_request"
-	ErrAuthFailed  = "auth_failed"
-	ErrPending     = "pending_approval"
-	ErrNotFound    = "not_found"
-	ErrForbidden   = "forbidden"
-	ErrTooLarge    = "too_large"
-	ErrRateLimited = "rate_limited"
-	ErrInternal    = "internal"
+	ErrBadRequest   = "bad_request"
+	ErrAuthFailed   = "auth_failed"
+	ErrPending      = "pending_approval"
+	ErrNotFound     = "not_found"
+	ErrForbidden    = "forbidden"
+	ErrTooLarge     = "too_large"
+	ErrRateLimited  = "rate_limited"
+	ErrInternal     = "internal"
+	ErrClientTooOld = "client_too_old" // Hello.ClientVersion is below the relay's configured minimum
 )
 
 // ErrorBody is the payload for [TypeError].

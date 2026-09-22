@@ -97,6 +97,23 @@ func (g *guiApp) minimizeToTrayLoop() {
 		if minimized && !g.trayHidden.Load() {
 			g.trayHidden.Store(true)
 			fyne.Do(g.win.Hide)
+			continue
+		}
+		if !minimized {
+			// The window just became non-iconic — either restored natively
+			// by the WM (if it was iconified without ever going through our
+			// own Hide() above, e.g. a missed event) or by our own tray
+			// "Show" handler. Some driver/WM combinations don't repaint the
+			// GL surface on their own after a hide/iconify cycle, leaving a
+			// blank, undrawn client area (just the frame, showing whatever
+			// is behind it) until something forces a redraw. Nudge one
+			// explicitly on every such transition; harmless if it wasn't
+			// actually needed.
+			fyne.Do(func() {
+				if c := g.win.Content(); c != nil {
+					c.Refresh()
+				}
+			})
 		}
 	}
 }

@@ -34,6 +34,9 @@ type guiApp struct {
 	// trayHidden is true while the window is hidden to the tray (via the close
 	// button or a minimize redirected by startMinimizeToTray).
 	trayHidden atomic.Bool
+	// hasUnread is true when a message arrived while the window was hidden to
+	// the tray and hasn't been shown again since — drives the tray icon badge.
+	hasUnread atomic.Bool
 
 	// main view widgets
 	roster    *rosterView

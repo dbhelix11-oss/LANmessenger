@@ -9,6 +9,7 @@ import (
 
 	"lanmessenger/internal/crypto"
 	"lanmessenger/internal/proto"
+	"lanmessenger/internal/version"
 )
 
 const maxDisplayNameLen = 64
@@ -141,7 +142,12 @@ func (s *Server) markReady(c *conn, entry proto.DirectoryEntry) {
 // frame, a directory snapshot, presence of everyone else, a drain of the offline
 // queue, and broadcasting this device's arrival to others.
 func (s *Server) afterReady(c *conn) {
-	c.trySend(proto.TypeReady, "", proto.Ready{DeviceID: c.deviceID, Admin: c.admin})
+	c.trySend(proto.TypeReady, "", proto.Ready{
+		DeviceID:         c.deviceID,
+		Admin:            c.admin,
+		ServerVersion:    version.Version,
+		MinClientVersion: s.cfg.MinClientVersion,
+	})
 
 	entries, err := s.store.listDevicesByState(proto.StateActive)
 	if err != nil {

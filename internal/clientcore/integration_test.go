@@ -28,6 +28,14 @@ func discardLogger() *slog.Logger {
 // startRelay boots a servercore relay on an ephemeral port and returns its
 // address and TLS certificate fingerprint.
 func startRelay(t *testing.T, requireApproval bool) (addr, fingerprint string) {
+	addr, fingerprint, _ = startRelayCfg(t, requireApproval)
+	return addr, fingerprint
+}
+
+// startRelayCfg is startRelay but also returns the live *servercore.Config,
+// which a test may go on mutating (e.g. MinClientVersion) — the server reads
+// it fresh on every handshake, not just at startup.
+func startRelayCfg(t *testing.T, requireApproval bool) (addr, fingerprint string, cfg *servercore.Config) {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -35,7 +43,7 @@ func startRelay(t *testing.T, requireApproval bool) (addr, fingerprint string) {
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
-	cfg := &servercore.Config{
+	cfg = &servercore.Config{
 		DataDir:              dir,
 		Passphrase:           verifier,
 		RequireAdminApproval: requireApproval,
@@ -66,7 +74,7 @@ func startRelay(t *testing.T, requireApproval bool) (addr, fingerprint string) {
 	if err != nil {
 		t.Fatalf("CertFingerprint: %v", err)
 	}
-	return ln.Addr().String(), fp
+	return ln.Addr().String(), fp, cfg
 }
 
 func newClient(t *testing.T, addr, fingerprint string) *clientcore.Client {
@@ -430,4 +438,64 @@ func TestAdminApproval(t *testing.T) {
 		t.Fatalf("Approve: %v", err)
 	}
 	waitState(t, kid, clientcore.StateReady, 5*time.Second)
+}
+
+// TestUpdateRequiredStopsReconnecting covers the hard-stop path: a client
+// that was fine at enrollment gets locked out once the relay's
+// MinClientVersion rises above this build's own version.Version. It should
+// see EventUpdateRequired and runLoop should give up rather than retry
+// forever against a relay that will keep rejecting it.
+func TestUpdateRequiredStopsReconnecting(t *testing.T) {
+	addr, fp, cfg := startRelayCfg(t, false)
+
+	cl := newClient(t, addr, fp)
+	if _, err := cl.Enroll(context.Background(), "Old build", relayPassphrase); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	if err := cl.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitState(t, cl, clientcore.StateReady, 5*time.Second)
+	cl.Stop()
+
+	// The relay now requires a build newer than this one has.
+	cfg.MinClientVersion = "99.0.0"
+
+	if err := cl.Start(context.Background()); err != nil {
+		t.Fatalf("Start (2nd): %v", err)
+	}
+	ev := drainUntil(t, cl, clientcore.EventUpdateRequired, 5*time.Second)
+	if ev.Kind != clientcore.EventUpdateRequired {
+		t.Fatalf("got event %s, want %s", ev.Kind, clientcore.EventUpdateRequired)
+	}
+
+	// runLoop should have given up: state settles on disconnected and stays
+	// there rather than climbing back to connecting/ready on a retry.
+	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "state stays disconnected", time.Second, func() bool {
+		return cl.State() == clientcore.StateDisconnected
+	})
+}
+
+// TestUpdateAvailableEmittedOnNewerRelay covers the soft path directly
+// against applyProtocolGate (package-internal, see versiongate_test.go) since
+// faithfully reproducing "the relay is on a newer release" through this
+// external test package would require the test relay to report a
+// version.Version different from the one it's compiled with. This test just
+// confirms the wiring: a real handshake against a relay with no
+// MinClientVersion configured leaves the client's ServerVersion() populated
+// and does not itself misfire EventUpdateRequired.
+func TestReadyPopulatesServerVersion(t *testing.T) {
+	addr, fp := startRelay(t, false)
+	cl := newClient(t, addr, fp)
+	if _, err := cl.Enroll(context.Background(), "Solo", relayPassphrase); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	if err := cl.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitState(t, cl, clientcore.StateReady, 5*time.Second)
+	if cl.ServerVersion() == "" {
+		t.Fatal("ServerVersion() empty after ready")
+	}
 }

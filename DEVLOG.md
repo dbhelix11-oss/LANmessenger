@@ -5,6 +5,338 @@ This is a running notebook, not a changelog. `CHANGELOG.md` stays the terse
 reasoning, the dead ends, the small pieces of code that are actually worth
 looking at rather than just describing. Started 2026-09-19.
 
+## 2026-09-21 — Client auto-update, phase 5: making the docs stop lying
+
+`docs/DESIGN.md` §12.2 had described the update system's *design* since
+before any of it existed — CI-only, one blanket release version, an optional
+`go-selfupdate` dependency, a `fetch-update` subcommand. None of that
+survived contact with what actually got decided and built across phases
+1–4: the hybrid Pi-local/CI split, signing kept off *every* automated
+system rather than allowed in CI secrets, a per-artifact manifest instead of
+one version number, and a hand-rolled `internal/update` rather than a
+third-party updater. Left as-is, the doc would have been actively
+misleading about a security-relevant design — worse than no doc at all.
+Rewrote §12.2 in place: "Built" up front with a pointer at this file's own
+entries for the full story, the real manifest shape as a worked example
+(including the merged-across-releases case), corrected step numbering
+in "why signing is non-negotiable" to match the actual client flow, marked
+the binary-delta module explicitly "not built" (it wasn't touched — no
+reason to imply otherwise), and swapped the version-negotiation section from
+future-tense design language to "built," with the real `Ready` struct.
+
+Also fixed two smaller staleness spots while in the area: `README.md`'s
+"Deferred to v2" list still named "a signed client-update system" as
+unbuilt — moved it into the feature list instead, since leaving a shipped
+feature in the deferred-work list the first thing a reader sees felt like
+exactly the kind of thing worth catching. And `SETUP.md`'s packaging section
+never actually said `fyne package` only cross-*packages* by OS, not
+architecture — confirmed during phase 1's original research
+(`fyne package -os linux` on the Pi's arm64 produces an arm64 tarball, not
+amd64) but never made it into the docs until now.
+
+## 2026-09-21 — Client auto-update, phase 4: the actual release workflows
+
+The two build/release paths designed with the user back in phase 1's
+conversation, now as real, runnable artifacts rather than a plan.
+
+**`scripts/pi-release.sh`** cross-compiles `lanmsg-cli`, `lanmsg-remote-cli`,
+and `lanmsg-server` for every supported platform in one pass — 16 builds:
+six each for the two CLIs (linux/amd64, linux/arm64, linux/armv7,
+windows/amd64, darwin/amd64, darwin/arm64), plus `android/arm64` for
+`lanmsg-remote-cli` specifically (Termux, per `docs/SETUP.md` §5), plus
+three Linux builds of `lanmsg-server` itself for an admin's own manual relay
+upgrade (deliberately *not* treated as a self-update artifact — the relay
+doesn't self-update; see `docs/DEPLOY-TO-PI.html` for that separate,
+simpler manual process). The script's own header comment is blunt about
+where it's meant to run: a plain shell session under the Pi's normal login,
+never inside `lanmsg-server.service` — that unit's `ProtectSystem=strict` +
+`ReadWritePaths=/etc/lanmsg /var/lib/lanmsg` (confirmed by reading
+`deploy/lanmsg-server.service` back in the original planning pass) would
+block a writable source tree or `go build`/`git` from running inside it at
+all.
+
+Ran it for real rather than just eyeballing the loop — all 16 binaries came
+out with the right filenames and, spot-checked with `file`, the right
+architecture/format (`ELF 64-bit ... ARM aarch64`, `PE32+ ... MS Windows`,
+`Mach-O 64-bit arm64`, `ELF 32-bit ... ARM, EABI5`). Then fed two of that
+real output straight into `lanmsg-signrelease sign` — confirming the two
+pieces actually chain together as documented, not just that each one works
+in isolation.
+
+**`.github/ci.yml.example`** gained a `gui-build` job, gated to version-tag
+pushes only (`on.push.tags: ["v*"]`, added alongside the existing
+`branches: [main]`/`pull_request` triggers) — a matrix over
+`ubuntu-latest`/`macos-latest`/`windows-latest` running `fyne package` on
+each native runner, since that's the one binary that categorically can't be
+cross-compiled from the Pi (cgo + a native per-OS toolchain — already
+established in phase 1's research). The existing `cross-build` job's matrix
+still excludes `cmd/lanmsg` exactly as it already did — this is a new job,
+not a change to that one. Deliberately uploads only *unsigned* workflow
+artifacts; signing happens the identical way regardless of whether the
+binaries came from the Pi or from CI, on the same separate trusted machine,
+via the same `lanmsg-signrelease` tool. Did not run `gh auth refresh -s
+workflow` or actually move the file into `.github/workflows/` — that's a
+one-time step requiring the user's own GitHub auth, documented but not
+something to do without being asked.
+
+## 2026-09-21 — Client auto-update, phase 3: relay serves `/updates/`, and a real end-to-end run
+
+Small phase, deliberately: the relay's job here is "serve some files
+read-only," nothing more. Two new routes on the existing mux
+(`internal/servercore/server.go`) alongside `/ws` and `/healthz`:
+`/updates/manifest.json[.sig]` via a straight `http.ServeFile` (a relay with
+nothing ever published just 404s — a normal, valid state, not an error), and
+`/updates/artifacts/` via `http.FileServer(http.Dir(...))`. Added an explicit
+path-traversal check in front of the artifacts handler even though Go's
+`http.Dir` already guards against escaping the root on its own — the point
+wasn't distrust of the stdlib, it was making that guarantee visible at the
+call site instead of implicit in a library behavior a future reader would
+have to go verify for themselves. Confirmed both layers actually hold with a
+few `../` / percent-encoded traversal attempts against a fixture file
+planted just outside the artifacts dir in `updates_test.go`.
+
+**Then actually ran the whole pipeline for real**, not just phase-by-phase
+unit tests — the only way to be sure phases 1 through 3 actually compose
+into a working feature end to end. Built two `lanmsg-cli` binaries (v0.1.0
+and v0.2.0), a real relay, signed a release naming the v0.2.0 build for
+`linux/amd64` with `lanmsg-signrelease`, published it into the relay's data
+dir, and ran the v0.1.0 binary's `enroll` against the live relay. It found
+the update, downloaded it, verified the signature and hash, and swapped
+itself out mid-command — `md5sum` on the binary file before and after
+matched the real v0.2.0 build exactly. Running it again afterward was
+silent, confirming `CheckSelf` correctly recognized it was now current
+rather than looping on the same "update available" forever.
+
+The one part of this that needed care: exercising it at all requires a
+compiled-in `UpdatePubKey`, which is deliberately empty in this repo (no
+real release key exists yet — see phase 2). Edited `internal/update/client.go`
+and `internal/version/version.go` to a throwaway test key/version, built the
+two test binaries, and reverted both source files **immediately after that
+one build step**, before running anything else — `git diff` confirmed clean
+before the actual relay/enroll/swap test ever ran. Baking in even a
+temporary real-looking key and leaving it sitting in the working tree, even
+briefly, felt like exactly the kind of mistake worth being deliberate about
+avoiding, given the whole feature's premise is that this key must never
+casually end up somewhere it doesn't belong.
+
+## 2026-09-21 — Client auto-update, phase 2: the manifest, the signing tool, `internal/update`
+
+Phase 1 (below) built the coarse "can this build even talk to the relay"
+gate. This phase builds the actual convenience layer: a signed manifest
+naming which binaries have newer builds, and the machinery to fetch,
+verify, download, and swap one in.
+
+**Design settled with the user first**, since it cuts across the household's
+actual constraints: `lanmsg-cli`/`lanmsg-remote-cli` are cgo-free and
+cross-compile for any OS/arch from anywhere — including the Pi itself — so
+routine releases need no CI. The GUI needs a native per-OS toolchain the Pi
+doesn't have, so GUI-affecting releases go through the (still dormant)
+GitHub Actions config instead. Either way, **signing never happens on the Pi
+or in CI** — confirmed explicitly with the user, since the whole point of a
+separate signing step is that a compromised build machine still can't push a
+trusted backdoored update (`docs/DESIGN.md` §12.2's "the relay is
+distribution, not authority", predating this feature by a day). Also
+confirmed: a `seq` anti-rollback counter in the manifest, and `/updates/*`
+routes left unauthenticated (the signature is the trust boundary, not
+secrecy).
+
+**Manifest is per-artifact, not one blanket release version** — matched on
+`(target, os, arch)`, each with its own `version`/`sha256`/`url`
+(`internal/update/manifest.go`). This is what lets a CLI-only release leave
+the GUI's manifest entries completely untouched, so GUI users are never told
+"update available" for a platform where nothing actually changed. Verified
+this concretely: signed a release with both a `lanmsg-cli` and a
+`lanmsg-remote-cli` artifact (`seq=1`), then a second release
+(`cmd/lanmsg-signrelease sign -prev ...`) touching only the remote-cli
+artifact — the cli entry came out byte-identical in the merged manifest,
+`seq` bumped to 2, exactly as designed.
+
+**`cmd/lanmsg-signrelease`** is deliberately not built by CI, not shipped
+anywhere, and not part of any release artifact — it's the one tool that's
+supposed to only ever run on the admin's own machine. `init` generates the
+Ed25519 keypair and prints the public half to paste into
+`internal/update.UpdatePubKey`; `sign` takes a small JSON release spec
+(target/os/arch/version/local-file-path per artifact) and always re-derives
+SHA-256 from the bytes it actually reads off disk — never from anything the
+spec file claims, since the spec is just admin input, not a trust boundary.
+
+**Bug caught by the test suite, not by inspection**: `DownloadAndVerify`
+originally used a named return `(tmpPath string, err error)`, with a
+deferred cleanup closure reading `tmpPath` to `os.Remove` it on failure. Every
+early-exit path did `return "", fmt.Errorf(...)` — which, because `tmpPath`
+was the *named* return, overwrote it to `""` before the deferred closure
+ever ran. So `os.Remove("")` fired instead of removing the actual leaked
+temp file — silently, since `os.Remove` on a nonexistent/invalid path just
+returns an ignored error. `TestDownloadAndVerifySHA256Mismatch` caught this
+immediately (asserting the temp dir was empty after a failed download; it
+wasn't). Fixed by using a plain local variable for the path inside the
+function and only assigning to the return value on the success path —
+a good reminder that a named return referenced from inside a `defer` is
+reading whatever the *most recent* `return` statement set it to, not
+necessarily the value some earlier line in the function assigned.
+
+**Cross-platform swap is genuinely two different mechanisms**, split by
+build tag (`internal/update/swap_unix.go` / `swap_windows.go`): Unix gets a
+plain `rename(2)` (atomic, same filesystem, and safe to do to a binary that's
+currently running — the process keeps its old inode open until it actually
+exits) plus `syscall.Exec` to replace the process image in place for `watch`.
+Windows has neither primitive — you can't overwrite a mapped-in-use
+executable's file directly, and there's no `exec()` to replace a running
+process — so `Swap` renames the current binary aside first, and `reexec`
+spawns a detached child + `os.Exit(0)`. Confirmed both sides actually compile
+(`GOOS=windows go build ./internal/update/...`) even though only the Unix
+path can be exercised on this dev machine.
+
+**Wiring into the CLIs deliberately isn't what the plan sketch said.** The
+original plan called for triggering the one-shot check "in a background
+goroutine right after `waitReady()`" — but a one-shot command's `main()`
+returning kills any goroutine still in flight, so a fire-and-forget check
+would rarely finish downloading anything before the process exited. Changed
+to a plain synchronous call at the very end of `enroll`/`send`/`status`/
+`roster`, after the command's real output is already printed — the fast-fail
+case (no manifest published yet, which is every case right now since
+`UpdatePubKey` is still empty) costs nothing measurable. `watch` is the one
+place a background goroutine actually works as originally planned, since the
+process lives for the goroutine's whole lifetime.
+
+**`lanmsg-remote-cli`'s check needed its own SOCKS wiring** that the plan
+hadn't called out: that binary's whole reason to exist is routing through
+Tor, and `internal/update.NewFetcher` originally had no way to do that at
+all — it would have dialed the relay directly, bypassing Tor entirely for
+the update check specifically (at best failing outright against a
+`.onion` address with no SOCKS route, at worst leaking that this machine is
+checking updates outside the anonymized circuit). Added `socksDialContext`
+to `internal/update/socks.go`, duplicating (not importing)
+`internal/clientcore`'s equivalent — the two packages are meant to stay
+independent of each other in both directions.
+
+Live-verified end to end on a real relay: enrolled two devices, sent a
+message, ran `watch` — all three commands' update checks no-op silently and
+add no measurable latency in today's default (no manifest published,
+`UpdatePubKey` empty) state; `time`d a `send` at 1.563s, matching the
+pre-existing 1.5s post-send delivery wait almost exactly.
+
+## 2026-09-21 — Desktop client: tray unread badge, notifications that persist until clicked, and a real window-refresh bug
+
+Three related pieces of tray/notification polish, done in sequence, one of
+which turned up a genuine rendering bug along the way.
+
+**Tray unread badge** (`cmd/lanmsg/trayicon.go`): computed at runtime from
+the existing `icon.png` via `image/draw` — a red dot with a white contrast
+ring, top-right corner, rather than shipping a second static asset that
+could drift out of sync whenever the real icon changes. Deliberately scoped
+narrow: "unread" means "a message arrived while the window was hidden to the
+tray," tracked via the same `trayHidden` atomic the minimize-to-tray feature
+already maintained — there's no per-conversation read-state model in this
+codebase to hang a richer definition off of, and building one wasn't what
+was asked for.
+
+**Notifications that persist until clicked** (`cmd/lanmsg/notify_linux.go`):
+the existing fixed 6-second expiry (from the 2026-08-31 stuck-forever fix)
+was a blunt compromise for notification servers with no dismiss affordance
+at all. Queried this machine's actual notifier
+(`lxqt-notificationd`) via `GetCapabilities` and found it advertises both
+`actions` and `persistence` — so, when a server says it can do that,
+`expire_timeout=0` plus a `["default", ""]` action pair is safe, and a
+background goroutine subscribing to `ActionInvoked`/`NotificationClosed`
+D-Bus signals (mirroring `traywatch_linux.go`'s existing "second connection,
+best-effort" shape) brings the window forward and clears the badge on click.
+Servers that don't advertise `actions` still get the old fixed timeout — the
+capability check is what makes this safe rather than a straight revert of
+the earlier fix.
+
+Actually verified this rather than trusting the spec reading: sent a real
+notification via the exact D-Bus call the code makes, screenshotted at t=0
+and t=9s (past the old 6s cutoff) — still fully on screen, and
+`lxqt-notificationd` renders its own close button regardless, so there's
+always a manual dismiss path even before the click-handling code runs.
+Separately confirmed the signal-matching logic itself (id-based, ignoring
+notifications that aren't ours) with a throwaway harness that emitted a
+synthetic `ActionInvoked(999, "default")` onto the session bus and watched
+it get caught — since actually clicking a GUI notification isn't something
+this environment can script (no `xdotool`/`wmctrl` here).
+
+**The window-refresh bug** turned up while testing the above: minimizing the
+GUI and bringing it back sometimes left just the window frame on screen,
+showing whatever was behind it, until `traywatch_linux.go`'s minimize
+watcher forces things through the tray's own "Show" path (which apparently
+repaints correctly). Root cause: the X11 property watcher
+(`minimizeToTrayLoop`) only ever reacted to the window *becoming* iconic (to
+hide it) — it never reacted to the reverse transition. A window minimized by
+the WM through some path other than our own `Hide()` (a missed event, or a
+WM that manages iconify differently) restores natively without our code
+ever touching it, and on this driver/WM combination that native restore
+doesn't reliably repaint the GL surface. Fixed by watching both directions
+and forcing a `Content().Refresh()` on any transition to non-iconic — cheap,
+harmless if it wasn't actually needed, whichever path triggered it. Could
+not script an actual WM-level minimize/restore cycle to confirm visually (no
+`xdotool`/`wmctrl`); logic and build are verified, real end-to-end
+confirmation is still pending the user trying it.
+
+## 2026-09-21 — docs: macOS notification troubleshooting, Pi deployment + certificate verification
+
+Two standalone docs, not code. `docs/MACOS-NOTIFICATIONS.md` — the user hit
+silent notifications on a macOS build; traced to the known
+signed-`.app`-bundle requirement already noted in passing in `SETUP.md`'s
+packaging section, written up as its own checklist (signature → launch
+method → System Settings entry → `tccutil reset` to force a fresh prompt)
+since `cmd/lanmsg/notify_other.go` is a two-line passthrough to Fyne with no
+custom logic of its own to actually be buggy.
+
+`docs/DEPLOY-TO-PI.html` — a full walkthrough for shipping a new build to
+the already-running relay, ending in the step this project's trust model
+actually depends on: fetching the relay's TLS fingerprint from a *third*,
+independent computer (`openssl s_client`) and cross-checking it against what
+the relay reports about itself locally, so trust in the relay never rests on
+a single machine or network hop. Matches the existing `docs/INSTALL.html`
+styling exactly (shared CSS block, light/dark mode); screenshot-verified it
+actually renders before calling it done.
+
+## 2026-09-20 — Client auto-update, phase 1: the protocol compatibility gate
+
+First slice of the auto-update feature (design conversation and full 7-phase
+plan captured separately; phase 2 above, phases 3+ still ahead). This phase
+is deliberately the smallest possible useful piece: extend the existing
+`ready` frame with `ServerVersion`/`MinClientVersion`, since every client
+already auto-reconnects with backoff (`internal/clientcore/client.go`'s
+`runLoop`) — meaning a version check needs no new poller, it just rides a
+frame that's already sent on every connect.
+
+New `internal/version` package as the single source of truth, replacing a
+`const clientVersion = "0.1.0"` in `internal/clientcore/conn.go` that had
+been write-only (populated `Hello.ClientVersion`, never read back by
+anything) since the very first version. Hand-rolled the major.minor.patch
+comparator rather than pulling in a semver dependency — matches this
+codebase's existing preference for stdlib-only crypto in `internal/crypto`.
+
+**Real bug found by the new integration test, not by reasoning about the
+code**: `TestUpdateRequiredStopsReconnecting` timed out waiting for the hard-stop
+event that should fire when the relay rejects a build as too old. Traced it
+to `internal/clientcore/conn.go`'s `handshake()` — the very first read after
+sending `Hello` unconditionally expected `TypeAuthChallenge` next:
+
+```go
+env, err := w.read(ctx)
+...
+if env.Type != proto.TypeAuthChallenge {
+    return res, unexpected(env, "auth_challenge")
+}
+```
+
+A `TypeError` frame arriving there instead — exactly what the new
+`client_too_old` rejection sends, straight after `Hello`, before any
+challenge — fell into that generic branch and came back as a plain
+`fmt.Errorf`, not a `*RelayError`. `runLoop`'s hard-stop detection
+(`errors.As(err, &re)`) never matched a plain error, so the client just
+backed off and retried forever against a relay that would keep rejecting it
+— silently defeating the entire point of the hard-stop path before it had
+even shipped. Fixed by checking for `TypeError` explicitly at that read,
+same as the terminal-frame loop a few lines down already did. Worth
+remembering: this class of bug — an early, narrower frame-type check that
+doesn't yet know about a new error path introduced elsewhere — is exactly
+the kind of thing that stays invisible until an actual end-to-end test
+forces the new path to fire, which local `go build` obviously can't catch.
+
 ## 2026-09-20 (live deployment) — ready-before-roster race in both send commands
 
 Second real bug caught by actually running this over a live Tor link

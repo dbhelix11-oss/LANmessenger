@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
 
 	"lanmessenger/internal/clientcore"
 	"lanmessenger/internal/proto"
@@ -67,6 +68,14 @@ func (g *guiApp) handleEvent(ev clientcore.Event) {
 			g.setStatusLine(ev.Err.Error())
 			g.log.Warn("client event error", "err", ev.Err)
 		}
+
+	case clientcore.EventUpdateAvailable:
+		g.setStatusLine(fmt.Sprintf("Update available: v%s (rebuild to update)", ev.ServerVersion))
+
+	case clientcore.EventUpdateRequired:
+		dialog.ShowInformation("Update required",
+			"This build is too old for the relay to accept. It will not reconnect "+
+				"until you install a newer version.", g.win)
 	}
 }
 
@@ -112,6 +121,9 @@ func (g *guiApp) onMessage(ev clientcore.Event) {
 	}
 
 	if ev.Message.Direction == clientcore.DirIn {
+		if g.trayHidden.Load() {
+			g.markUnread()
+		}
 		name := g.peerName(ev.PeerID)
 		if g.shouldNotify(ev.PeerID) {
 			body := ev.Message.Body

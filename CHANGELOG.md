@@ -1,5 +1,73 @@
 # Changelog
 
+## 2026-09-21 — client auto-update system; desktop tray/notification polish
+
+### Added
+
+- **Client auto-update.** Two independent mechanisms:
+  - A protocol compatibility gate on the `ready` frame
+    (`ServerVersion`/`MinClientVersion`): a client below the relay's
+    configured minimum (`min_client_version` in `server.toml`, no floor by
+    default) is rejected at `Hello` time and stops reconnecting; anything
+    else gets a soft "update available" notice (GUI status line, CLI
+    stderr).
+  - A signed, per-artifact self-update manifest. New `internal/update`
+    package (manifest fetch, Ed25519 signature verification, `seq`
+    anti-rollback check, SHA-256-verified download, atomic swap, and
+    re-exec for long-lived processes) that `lanmsg-cli` and
+    `lanmsg-remote-cli` check on every connect and update themselves from —
+    the desktop GUI only ever shows the notice, it never self-swaps. New
+    admin-only `cmd/lanmsg-signrelease` tool (never built by CI or shipped
+    anywhere) generates the release keypair and signs manifests, always
+    re-deriving artifact hashes from the actual bytes on disk. The relay
+    (`internal/servercore/updates.go`) only ever distributes whatever's
+    placed in its `updates/` directory — it never builds or signs anything.
+  - New `internal/version` package as the single source of truth for the
+    build version, replacing a write-only constant.
+  - New `scripts/pi-release.sh` cross-compiles `lanmsg-cli`,
+    `lanmsg-remote-cli`, and `lanmsg-server` for every supported
+    platform locally (no CI needed for routine releases); a new `gui-build`
+    job in `.github/ci.yml.example` (tag-triggered) covers the one binary
+    that can't be cross-compiled from the Pi. Signing always happens on a
+    third machine, separate from both — see `docs/SETUP.md`'s new
+    "Updates" section and `docs/DESIGN.md` §12.2 for the full design and
+    release workflow.
+- **Desktop client: unread tray badge.** The tray icon gets a red-dot badge
+  (computed at runtime from the existing app icon) when a message arrives
+  while the window is hidden to the tray; clears when the window is shown
+  again.
+- **Desktop client (Linux): notifications persist until clicked** when the
+  session's notification server supports it (detected via
+  `GetCapabilities`), instead of a fixed 6-second expiry — clicking one
+  brings the window to front and clears the unread badge. Falls back to the
+  old fixed timeout on notification servers that can't tell us about a
+  click.
+- `docs/DEPLOY-TO-PI.html` — a step-by-step tutorial for building a new
+  relay version, installing it on the Pi in place, and independently
+  verifying its TLS certificate fingerprint from a third computer before
+  trusting it.
+- `docs/MACOS-NOTIFICATIONS.md` — troubleshooting checklist for the known
+  macOS signed-`.app` notification-permission requirement.
+
+### Fixed
+
+- `internal/clientcore`: the client handshake only expected an
+  `auth_challenge` frame immediately after `hello`; an `error` frame
+  arriving there instead (as the new `client_too_old` rejection does) was
+  silently mangled into a generic error instead of a `*RelayError`, so the
+  hard-stop path could never actually be detected. Found by the new
+  version-gate integration test.
+- `internal/update`: `DownloadAndVerify`'s cleanup of a failed download used
+  a named return value from inside a `defer`, which had already been
+  overwritten to `""` by the failing `return` statement — the temp file was
+  never actually deleted. Found by its own test.
+- Desktop client (Linux): restoring the main window through a path other
+  than the tray's own "Show" item (e.g. a native window-manager restore)
+  could leave just the window frame on screen with no repainted content,
+  since the X11 property watcher only ever reacted to the window becoming
+  minimized, never to it becoming un-minimized. Now forces a repaint on
+  either transition.
+
 ## 2026-09-20 — desktop client: start-minimized flag, tray-watcher shutdown fix
 
 ### Added

@@ -39,6 +39,7 @@ func (c *Client) dispatch(ctx context.Context, w *wsConn, env *proto.Envelope) {
 func (c *Client) handleReady(ctx context.Context, w *wsConn, env *proto.Envelope) {
 	var rd proto.Ready
 	_ = env.Unmarshal(&rd)
+	c.applyProtocolGate(rd)
 	c.mu.Lock()
 	c.admin = rd.Admin
 	desired := c.desired

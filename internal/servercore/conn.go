@@ -14,6 +14,7 @@ import (
 
 	"lanmessenger/internal/crypto"
 	"lanmessenger/internal/proto"
+	"lanmessenger/internal/version"
 )
 
 const (
@@ -218,6 +219,11 @@ func (s *Server) handshake(ctx context.Context, c *conn) error {
 	var hello proto.Hello
 	if err := env.Unmarshal(&hello); err != nil {
 		return err
+	}
+	if s.cfg.MinClientVersion != "" && hello.ClientVersion != "" &&
+		version.Compare(hello.ClientVersion, s.cfg.MinClientVersion) < 0 {
+		c.sendError("", proto.ErrClientTooOld, "this client build is too old; update to continue")
+		return errors.New("client too old")
 	}
 
 	// 2. auth_challenge
