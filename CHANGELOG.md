@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-29 — deploy: procd init script for an OpenWRT router deployment
+
+### Added
+
+- `deploy/lanmsg-server.init` — procd equivalent of `deploy/lanmsg-server.service`,
+  for running the relay directly on an OpenWRT router instead of a
+  Raspberry Pi/systemd host. Part of an in-progress migration (see
+  `DEVLOG.md` 2026-09-29) that keeps the AWS Tor-tunnel box unchanged and
+  moves only the resident relay + its tunnel-dialing role onto the router.
+
 ## 2026-09-22 — desktop client: fix blank window on taskbar restore; visible build version
 
 ### Added

@@ -1,0 +1,58 @@
+#!/bin/sh /etc/rc.common
+# procd init script for lanmessenger relay on OpenWRT — procd equivalent of
+# deploy/lanmsg-server.service (systemd), for a router deployment where the
+# binary, config, and data dir live on an externally-mounted drive rather
+# than the router's own small internal overlay.
+#
+# Quick version (full walkthrough: docs/SETUP.md's OpenWRT section):
+#   scp this file to the router at /etc/init.d/lanmsg-server
+#   chmod 0755 /etc/init.d/lanmsg-server
+#   /etc/init.d/lanmsg-server enable
+#   /etc/init.d/lanmsg-server start
+#
+# Assumes lanmsg-server's binary and config already exist at the paths
+# below (see the migration steps in docs/SETUP.md / DEVLOG.md) — this
+# script does not build, install, or configure lanmsg-server itself.
+
+USE_PROCD=1
+START=95
+STOP=10
+
+LANMSG_BIN="/mnt/lanmsg/bin/lanmsg-server"
+LANMSG_CONFIG="/mnt/lanmsg/etc/server.toml"
+
+start_service() {
+	[ -x "$LANMSG_BIN" ] || {
+		echo "lanmsg-server: $LANMSG_BIN not found (is /mnt/lanmsg mounted?)" >&2
+		return 1
+	}
+
+	procd_open_instance lanmsg-server
+	procd_set_param command "$LANMSG_BIN" run -config "$LANMSG_CONFIG"
+
+	# Bounds the Go heap: no swap on this box, and RAM is shared with
+	# routing/wifi rather than dedicated to the relay like the Pi was.
+	procd_append_param env GOMEMLIMIT=96MiB
+
+	# threshold=3600s window=5s retries=0(unlimited) — this is a long-lived
+	# critical daemon; don't let procd give up respawning it after N crashes
+	# in a short window the way its defaults would.
+	procd_set_param respawn 3600 5 0
+
+	# Restart automatically if server.toml changes on disk.
+	procd_set_param file "$LANMSG_CONFIG"
+
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param term_timeout 10
+	procd_close_instance
+}
+
+stop_service() {
+	:
+}
+
+reload_service() {
+	stop
+	start
+}

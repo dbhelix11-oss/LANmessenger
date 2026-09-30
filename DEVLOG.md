@@ -1071,3 +1071,151 @@ practice (see `reference_devlog_convention.md`).
 >   received by a LAN-connected GUI client and vice versa; kill the cloud
 >   box's tunnel process mid-session and confirm the Pi's `runTunnel` retries
 >   with backoff and recovers when it's restarted.
+
+## 2026-09-29 — Live receiving over the tunnel confirmed; approved plan: moving the resident relay from the Pi onto the OpenWRT router
+
+Closed the last open item from the 2026-09-20 tunnel deployment: a message
+sent to the `.onion` link was confirmed to actually show up on the remote
+side. Both directions of the tunnel (remote→LAN and LAN→remote) are now
+live-verified, not just built.
+
+Separately, discussed consolidating hardware: could the resident relay move
+off the Pi and onto the household's OpenWRT router (Linksys MR8300,
+`ipq40xx/generic`, `arm_cortex-a7_neon-vfpv4`)? Confirmed a side question
+first — installing Tor directly on a box really does let it be reached from
+outside with no port-forwarding/public IP needed, since hidden services only
+ever dial *outbound* to introduction points. That meant the original
+`docs/DESIGN.md` §13 justification for the separate AWS `lanmsg-tunnel` box
+("the home router has no public IP and no port-forwarding") wasn't actually
+the load-bearing reason a cloud box was needed — a home-run hidden service
+would work fine behind CGNAT too. The real reason to keep it, and the reason
+kept: **isolation**. `lanmsg-tunnel` on AWS is a deliberately dumb,
+stateless byte-forwarder with no database, roster, keys, or household
+passphrase — the only thing actually Tor-facing. Collapsing Tor onto the
+router itself would put Tor's own attack surface directly on the box that
+also holds the TLS cert, roster, and (post-move) the message queue, *and*
+that's also doing the household's NAT/wifi/routing. Decided to keep the
+AWS split and move only the relay + the Pi's tunnel-*dialing* role onto the
+router.
+
+Router specs gathered live from the box itself: OpenWRT 23.05.5, quad-core
+ARMv7 Cortex-A7 ~717MHz, 507MB RAM (330MB available, no swap), but only
+**42.3MB free** on the internal overlay (`/dev/ubi0_1`, UBI-backed squashfs+
+overlay root) — that's the real binding constraint, not RAM or CPU. User is
+adding a dedicated USB flash drive, formatted f2fs, to host the binary, the
+relay's data dir, and (primary path) Tor's own state dir, keeping the tiny
+internal overlay for just the opkg-installed packages themselves.
+
+A Plan agent pulled live OpenWRT 23.05.5 package-index data for this exact
+target/arch rather than estimating: the full USB-mount stack (`block-mount`,
+`kmod-usb-storage`, `kmod-usb3`, `kmod-fs-f2fs`, `f2fs-tools`) plus `tor` and
+its dependencies (`libevent2-7`, `libopenssl3`, `libcap`, `zlib`) comes to
+**≈3.5MB worst case** against the 42.3MB budget — comfortably fits, so
+installing Tor directly on the router is the primary plan, not a maybe. Kept
+a documented fallback anyway (run Tor client-only on another LAN box —
+naturally the freed-up Pi — and point the router's `[tunnel].socks_proxy` at
+its LAN IP instead of `127.0.0.1:9050`), since `internal/servercore/tunnel.go`'s
+`dialViaSOCKS5` is fully config-driven either way — zero code changes for
+that fallback.
+
+Full approved plan (saved at
+`~/.claude/plans/keep-the-isolation-spec-delightful-giraffe.md`):
+
+> # Move the resident relay (`lanmsg-server`) from the Pi onto the OpenWRT router
+>
+> ## Decisions locked in with the user
+>
+> 1. Keep the AWS box's Tor-hidden-service isolation design unchanged; only
+>    the relay + its tunnel-dial role move.
+> 2. USB drive: flash/thumb drive, f2fs.
+> 3. Migration **preserves identity** — copy the Pi's existing
+>    `server.db`/`server.crt`/`server.key`/`server.toml` to the router; do
+>    **not** run `lanmsg-server setup` on the router. Regenerating the TLS
+>    cert would break every client's pinned fingerprint (TOFU) and re-running
+>    setup risks silently creating a second, wrong identity.
+> 4. Once verified working, fully retire the Pi's relay role (stop+disable
+>    `lanmsg-server` and its local Tor client there).
+>
+> ## Implementation plan
+>
+> 1. **Pre-flight check on the router**: `opkg update && opkg list
+>    block-mount kmod-fs-f2fs f2fs-tools kmod-usb-storage kmod-usb3
+>    kmod-usb-core tor libevent2-7 libopenssl3 libcap zlib` and `df -h
+>    /overlay`. If post-install free overlay drops below ~10MB headroom,
+>    switch to the fallback in step 5 instead of pushing further.
+> 2. **Mount the USB drive** (plain mount, not extroot — extroot would
+>    replatform the router's entire overlay onto the drive, which is more
+>    invasive than needed): install the USB+f2fs packages, `mkf2fs -l lanmsg
+>    /dev/sda` (whole device, no partitioning — skips pulling in
+>    `fdisk`/`parted`), `block info` for the UUID, add a `uci add fstab
+>    mount` entry targeting `/mnt/lanmsg`, `/etc/init.d/fstab boot`, then
+>    reboot once and confirm it remounts automatically.
+> 3. **Cross-compile + deploy the binary** — no code changes needed, reuses
+>    the exact `CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build
+>    -trimpath -ldflags="-s -w"` command `docs/SETUP.md` already documents
+>    for "32-bit Raspberry Pi OS" (identical target triple), `scp` to
+>    `/mnt/lanmsg/bin/lanmsg-server`.
+> 4. **Migrate state from the Pi**: stop `lanmsg-server` on the Pi, record
+>    its TLS fingerprint via `lanmsg-server fingerprint -config
+>    /etc/lanmsg/server.toml` as ground truth, check for
+>    `server.db-wal`/`-shm`/`-journal` sidecars, tar up `/etc/lanmsg` +
+>    `/var/lib/lanmsg`, copy to the router's `/mnt/lanmsg/{etc,data}`, edit
+>    only the path fields in the copied `server.toml` (`data_dir` becomes the
+>    absolute `/mnt/lanmsg/data`; passphrase verifier, `admin_devices`,
+>    `[tunnel].secret`/`cloud_onion_addr` stay byte-identical), fix
+>    permissions, then **verify the fingerprint matches the recorded value
+>    exactly before going any further** — a mismatch means stop, don't start
+>    the service or point any client at the router. Never run `setup` on the
+>    router.
+> 5. **Tor client on the router** (primary): `opkg install tor`, client-only
+>    `torrc` (`SocksPort 127.0.0.1:9050`, `DataDirectory /mnt/lanmsg/tor-data`
+>    so its consensus cache doesn't eat the internal overlay over time).
+>    Fallback if step 1's live check comes back tighter than expected: Tor
+>    client-only on another LAN box (the freed-up Pi is the natural choice),
+>    bound to its LAN IP, and just change `[tunnel].socks_proxy` in the
+>    router's config to that IP — no code change either way.
+> 6. **procd init script** replacing `deploy/lanmsg-server.service` (OpenWRT
+>    uses procd, not systemd) — `/etc/init.d/lanmsg-server`, `USE_PROCD=1`,
+>    `procd_open_instance` running `lanmsg-server run -config
+>    /mnt/lanmsg/etc/server.toml`, `GOMEMLIMIT=96MiB` env (bounds the Go heap
+>    given no swap and RAM shared with routing/wifi), `respawn 3600 5 0`,
+>    `procd_set_param file` to auto-restart on config edits. Runs as root,
+>    matching OpenWRT's own convention (no `useradd`/shadow-utils by default)
+>    rather than spending overlay budget replicating the Pi's dedicated
+>    service account.
+> 7. **Firewall check** (verification, not expected to need a change):
+>    confirm the `lan` zone's default `input='ACCEPT'` already covers LAN
+>    clients reaching the router's own `listen_addr:8443`, and the `wan`
+>    zone still rejects/drops — remote access stays Tor-only by design, never
+>    inbound to the router directly.
+> 8. **Cutover verification**, with the Pi's service kept stopped-but-
+>    installed as rollback until all of these pass: fingerprint match, the
+>    `"backend authenticated"` log line, a real LAN round-trip with **no**
+>    fingerprint re-confirmation prompt, and a real remote-over-Tor
+>    round-trip reproducing the already-confirmed live path on the new
+>    topology. Only then disable the Pi's `lanmsg-server` and `tor`, leaving
+>    its data dir untouched for a few days as a cold rollback. Copy the
+>    init script and the exact `opkg install` command lists onto the USB
+>    drive itself (`/mnt/lanmsg/router-setup/`), since `sysupgrade` wipes
+>    `/overlay` — the init script and opkg packages — but not the USB mount.
+>
+> ## Operational caveats flagged, not fixed
+>
+> Blast radius changes (a relay crash/leak can now compete with the
+> household's actual routing/wifi/NAT, not just chat); Argon2id passphrase
+> verification during enrollment briefly competes with wifi/NAT for CPU;
+> 330MB available RAM with no swap is shared with Tor and normal router
+> services; firmware upgrades wipe `/overlay` (mitigated by the USB backup
+> in step 8); and rebooting the router to fix a relay hang now also drops
+> wifi/routing for the household, so prefer `ssh` + `/etc/init.d/lanmsg-server
+> restart` over a full reboot when possible.
+
+Next: work through the plan's steps live. Steps 1-2 (pre-flight check,
+mounting the USB drive) and steps 4-8 (data migration, Tor setup, cutover)
+all require running commands directly on the router and the Pi over SSH —
+per standing policy this needs the user's explicit go-ahead before any SSH
+connection is opened, so that gets asked for separately rather than assumed
+from plan approval alone. Step 3 (cross-compile the binary) and drafting
+the procd init script as a checked-in `deploy/` artifact are pure local
+repo work and can proceed without that.
+>   with backoff and recovers when it's restarted.
