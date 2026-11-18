@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-11-17 (later) — GUI: delete history + re-enroll; self-update staged and proven; release key
+
+### Added
+
+- **Delete history** (GUI roster, right-click a person): "for me only" or
+  "for me and <name>". "For both" sends a new end-to-end sealed message
+  kind, `clear_history` (`proto.InnerClearHistory`, `ClearHistoryBody{UpTo}`);
+  the peer's client deletes its own copy of messages up to that timestamp,
+  immediately or at next connect. The relay is unchanged. Older clients
+  (including the Android app today) ignore it. `clientcore.Client.ClearHistory`,
+  `EventHistoryCleared`, `TestClearHistory`.
+- **Re-enroll** (GUI Settings, red button): `clientcore.ResetConnection` forgets
+  the relay address, pinned fingerprint, saved passphrase and enrollment and
+  reopens the setup wizard; optional checkbox also deletes keys and history.
+- `deploy/lanmsg-tunnel2.service` — second cloud tunnel instance (ports
+  8444/9444) beside the original.
+- `Fetcher.LastSeq` / `RestoreSeq` in `internal/update`.
+
+### Changed
+
+- **Release signing key is now real**: `internal/update.UpdatePubKey` holds the
+  public half (private key lives offline, outside the repo). Self-update is
+  therefore enabled in `lanmsg-cli` and `lanmsg-remote-cli`.
+- Self-update (both CLIs): 3-minute budget (was 10 s / 30 s) so it survives
+  Tor; a failed download restores the manifest sequence number so the next
+  run retries the same release; `LANMSG_DEBUG=1` prints why a check failed.
+- `internal/version.Version` is 0.1.1.
+- GUI event pump takes its own context/client so it can be restarted after a
+  re-enroll.
+
+### Verified
+
+- `go test -race ./internal/...` green. A remote CLI on the AWS host
+  self-updated 0.1.0 -> 0.1.1 over Tor through the tunnel from a manifest
+  served by the router relay (signed, seq 2).
+
+
 ## 2026-11-17 — relay moved onto the OpenWrt router (fresh identity) + second tunnel
 
 ### Added

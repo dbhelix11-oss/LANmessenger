@@ -39,13 +39,24 @@ func (g *guiApp) showSettings() {
 		widget.NewFormItem("Relay", serverInfo),
 	)
 
+	var d dialog.Dialog
+	resetBtn := widget.NewButton("Delete connection settings and re-enroll…", func() {
+		if d != nil {
+			d.Hide()
+		}
+		g.confirmReset()
+	})
+	resetBtn.Importance = widget.DangerImportance
+
 	content := container.NewVBox(
 		form,
+		widget.NewSeparator(),
+		resetBtn,
 		widget.NewSeparator(),
 		widget.NewLabel("Read your fingerprint aloud to family so they can\nverify this device in their roster."),
 	)
 
-	d := dialog.NewCustomConfirm("Settings", "Save", "Cancel", content, func(ok bool) {
+	d = dialog.NewCustomConfirm("Settings", "Save", "Cancel", content, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -81,6 +92,25 @@ func (g *guiApp) showVerifyDialog(peerID string) {
 		g.refreshRoster()
 		if g.convo != nil && g.convo.peerID == peerID {
 			g.convo.refreshHeader()
+		}
+	}, g.win)
+}
+
+// confirmReset explains what resetting does and asks before doing it.
+func (g *guiApp) confirmReset() {
+	wipe := widget.NewCheck("Also delete message history and this device's keys (start as a brand-new device)", nil)
+	body := container.NewVBox(
+		widget.NewLabel("This forgets the relay address, the pinned certificate, the saved\n"+
+			"household passphrase and this device's enrollment, then opens the\n"+
+			"setup screen so you can join a relay again.\n\n"+
+			"By default your message history and device keys are kept, so you\n"+
+			"re-enroll as the same device. A relay that has been reset or\n"+
+			"replaced will treat you as new and ask for the passphrase."),
+		wipe,
+	)
+	dialog.ShowCustomConfirm("Re-enroll this device", "Delete and re-enroll", "Cancel", body, func(ok bool) {
+		if ok {
+			g.resetConnection(wipe.Checked)
 		}
 	}, g.win)
 }

@@ -114,6 +114,17 @@ func (c *Client) handleIncomingMsg(ctx context.Context, w *wsConn, env *proto.En
 		}
 		c.ack(ctx, w, m.MsgID, m.From)
 
+	case proto.InnerClearHistory:
+		var b proto.ClearHistoryBody
+		if err := inner.Unmarshal(&b); err == nil && b.UpTo > 0 {
+			if _, err := c.store.deleteMessages(m.From, b.UpTo); err != nil {
+				c.emitError(err)
+			} else {
+				c.emit(Event{Kind: EventHistoryCleared, PeerID: m.From})
+			}
+		}
+		c.ack(ctx, w, m.MsgID, m.From)
+
 	case proto.InnerFileOffer:
 		c.handleFileOffer(ctx, w, peer, m, inner)
 

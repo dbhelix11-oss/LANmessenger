@@ -36,13 +36,17 @@ func applySelfUpdate(cl *clientcore.Client, dir string, reexecOnSuccess bool) {
 	// Generous timeout: this may be running over Tor, which is slower and
 	// more variable than a LAN connection (the same reasoning already
 	// applied to waitForPeer's retry window in main.go).
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	f := update.NewFetcher(cl.ServerAddr(), cl.TLSConfig(), cl.SOCKSProxy(), dir)
+	prevSeq, _ := f.LastSeq()
 	manifest, err := f.FetchManifest(ctx)
 	if err != nil {
-		return // no manifest yet, no release key configured, network hiccup — not worth surfacing
+		if os.Getenv("LANMSG_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "[update] check failed: %v\n", err)
+		}
+		return // no manifest yet, no release key configured, network hiccup — quiet unless LANMSG_DEBUG is set
 	}
 	art, ok := manifest.ArtifactFor(selfUpdateTarget, runtime.GOOS, runtime.GOARCH)
 	if !ok || !update.CheckSelf(art) {
@@ -55,6 +59,7 @@ func applySelfUpdate(cl *clientcore.Client, dir string, reexecOnSuccess bool) {
 	}
 	tmpPath, err := f.DownloadAndVerify(ctx, art, filepath.Dir(execPath))
 	if err != nil {
+		_ = f.RestoreSeq(prevSeq) // retry this release next run
 		fmt.Fprintf(os.Stderr, "[update] found v%s but couldn't download/verify it: %v\n", art.Version, err)
 		return
 	}

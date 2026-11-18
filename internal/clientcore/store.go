@@ -235,6 +235,27 @@ UPDATE messages SET state = ? WHERE msg_id = ? AND peer_id = ? AND direction = ?
 	return err
 }
 
+// deleteMessages removes the stored conversation with peerID (messages with
+// ts <= upTo; upTo <= 0 removes all). It returns how many rows were deleted.
+func (s *clientStore) deleteMessages(peerID string, upTo int64) (int64, error) {
+	q, args := `DELETE FROM messages WHERE peer_id = ?`, []any{peerID}
+	if upTo > 0 {
+		q += ` AND ts <= ?`
+		args = append(args, upTo)
+	}
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("clientcore: delete messages: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// deleteOutboxForPeer drops sealed messages still waiting to be sent to peerID.
+func (s *clientStore) deleteOutboxForPeer(peerID string) error {
+	_, err := s.db.Exec(`DELETE FROM outbox WHERE peer_id = ?`, peerID)
+	return err
+}
+
 // listMessages returns up to limit most-recent messages with a peer, oldest
 // first.
 func (s *clientStore) listMessages(peerID string, limit int) ([]Message, error) {

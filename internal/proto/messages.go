@@ -286,6 +286,10 @@ const (
 	InnerFileChunk InnerKind = "file_chunk"
 	InnerReceipt   InnerKind = "receipt"
 	InnerTyping    InnerKind = "typing"
+	// InnerClearHistory asks the peer to delete its copy of this conversation
+	// ("delete for both"). Sealed like any message; the relay cannot tell it
+	// from text.
+	InnerClearHistory InnerKind = "clear_history"
 )
 
 // Inner is the decrypted body of a [Msg]. Data holds the kind-specific payload.
@@ -406,4 +410,11 @@ const (
 type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// ClearHistoryBody is the payload for [InnerClearHistory]. The receiver deletes
+// its stored messages with this sender whose timestamp is <= UpTo (Unix ms,
+// sender's clock), so a message sent after the request is never removed.
+type ClearHistoryBody struct {
+	UpTo int64 `json:"up_to"`
 }

@@ -499,3 +499,69 @@ func TestReadyPopulatesServerVersion(t *testing.T) {
 		t.Fatal("ServerVersion() empty after ready")
 	}
 }
+
+func TestClearHistory(t *testing.T) {
+	addr, fp := startRelay(t, false)
+	ctx := context.Background()
+
+	dad := newClient(t, addr, fp)
+	if _, err := dad.Enroll(ctx, "Dad", relayPassphrase); err != nil {
+		t.Fatalf("Dad enroll: %v", err)
+	}
+	mom := newClient(t, addr, fp)
+	if _, err := mom.Enroll(ctx, "Mom", relayPassphrase); err != nil {
+		t.Fatalf("Mom enroll: %v", err)
+	}
+	for _, c := range []*clientcore.Client{dad, mom} {
+		if err := c.Start(ctx); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		waitState(t, c, clientcore.StateReady, 5*time.Second)
+	}
+	sees := func(c *clientcore.Client, id string) func() bool {
+		return func() bool {
+			r, _ := c.Roster()
+			for _, e := range r {
+				if e.DeviceID == id {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	waitFor(t, "Dad sees Mom", 5*time.Second, sees(dad, mom.DeviceID()))
+	waitFor(t, "Mom sees Dad", 5*time.Second, sees(mom, dad.DeviceID()))
+
+	hist := func(c *clientcore.Client, peer string) int {
+		h, _ := c.History(peer, 100)
+		return len(h)
+	}
+
+	// Delete for me only: Mom keeps her copy.
+	if _, err := dad.SendText(ctx, mom.DeviceID(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Mom got one", 5*time.Second, func() bool { return hist(mom, dad.DeviceID()) == 1 })
+	if err := dad.ClearHistory(ctx, mom.DeviceID(), false); err != nil {
+		t.Fatal(err)
+	}
+	if n := hist(dad, mom.DeviceID()); n != 0 {
+		t.Fatalf("dad still has %d messages", n)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := hist(mom, dad.DeviceID()); n != 1 {
+		t.Fatalf("delete-for-me removed Mom's copy (have %d)", n)
+	}
+
+	// Delete for both: Mom's copy goes too, and later messages survive.
+	time.Sleep(5 * time.Millisecond)
+	if err := dad.ClearHistory(ctx, mom.DeviceID(), true); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Mom's copy deleted", 5*time.Second, func() bool { return hist(mom, dad.DeviceID()) == 0 })
+	time.Sleep(5 * time.Millisecond)
+	if _, err := dad.SendText(ctx, mom.DeviceID(), "after"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Mom got message sent after clear", 5*time.Second, func() bool { return hist(mom, dad.DeviceID()) == 1 })
+}

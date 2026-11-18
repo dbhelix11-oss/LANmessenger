@@ -1235,3 +1235,17 @@ keep 8443/9443. I wrongly guessed the router had connected to the OLD
 tunnel; comparing the two hostname files showed it was the new one.
 Not yet done: end-to-end test of a remote client over the new .onion;
 retiring the Pi relay and old tunnel.
+
+
+## 2026-11-17 (later) — self-update proven; two bugs it exposed
+
+Generated the release key (offline), embedded the public half, published a
+signed 0.1.1 to the router's updates/ dir and ran a 0.1.0 baseline on the AWS
+host. First attempt did nothing and said nothing: the 30 s budget covered
+manifest + 11 MB download over Tor (~20 s for the manifest alone), failures
+were swallowed on purpose, and the manifest Seq was persisted *before* the
+download, so one failed download would have blocked every later retry of that
+release. Fixed all three (3 min budget, RestoreSeq on failure, LANMSG_DEBUG
+output), rebuilt, re-signed as seq 2: update succeeded. Lesson: a "quiet
+best-effort" path needs a way to see why it did nothing. GUI clients still do
+not read the manifest (banner only from the relay's version) — see open items.

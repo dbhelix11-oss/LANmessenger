@@ -142,3 +142,27 @@ func (c *Config) Configured() bool {
 
 // Enrolled reports whether this device has completed enrollment.
 func (c *Config) Enrolled() bool { return c.DeviceID != "" }
+
+// ResetConnection forgets the relay connection settings so the setup wizard
+// runs again: it removes config.json and the stored household passphrase. The
+// device identity (keys) and message history are kept by default, so
+// re-enrolling at the same or a new relay reuses this device's keys. With
+// wipeIdentity it also deletes identity.json and the local database, giving
+// a brand-new device with no history. Call it only after stopping and
+// closing any Client using this directory.
+func ResetConnection(dir string, wipeIdentity bool) error {
+	files := []string{filepath.Join(dir, "config.json"), secretPath(dir)}
+	if wipeIdentity {
+		files = append(files,
+			filepath.Join(dir, "identity.json"),
+			filepath.Join(dir, "client.db"),
+			filepath.Join(dir, "client.db-wal"),
+			filepath.Join(dir, "client.db-shm"))
+	}
+	for _, f := range files {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clientcore: reset: %w", err)
+		}
+	}
+	return nil
+}

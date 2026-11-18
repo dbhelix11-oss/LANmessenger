@@ -10,6 +10,32 @@ import (
 	"lanmessenger/internal/proto"
 )
 
+// rosterItem is one roster row. It wraps the row's layout so a right-click
+// (secondary tap) can open the per-person context menu; the list still handles
+// ordinary clicks for selection.
+type rosterItem struct {
+	widget.BaseWidget
+	content     *fyne.Container
+	onSecondary func(pos fyne.Position)
+}
+
+func newRosterItem(content *fyne.Container) *rosterItem {
+	it := &rosterItem{content: content}
+	it.ExtendBaseWidget(it)
+	return it
+}
+
+func (it *rosterItem) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(it.content)
+}
+
+// TappedSecondary implements fyne.SecondaryTappable.
+func (it *rosterItem) TappedSecondary(e *fyne.PointEvent) {
+	if it.onSecondary != nil {
+		it.onSecondary(e.AbsolutePosition)
+	}
+}
+
 // rosterView is the left-hand list of people.
 type rosterView struct {
 	g       *guiApp
@@ -26,19 +52,21 @@ func newRosterView(g *guiApp) *rosterView {
 			name := widget.NewLabel("name")
 			name.TextStyle = fyne.TextStyle{Bold: true}
 			sub := widget.NewLabel("status")
-			return container.NewBorder(
+			return newRosterItem(container.NewBorder(
 				nil, nil,
 				container.NewGridWrap(fyne.NewSize(14, 14), dot),
 				nil,
 				container.NewVBox(name, sub),
-			)
+			))
 		},
 		func(id widget.ListItemID, o fyne.CanvasObject) {
 			if id < 0 || id >= len(r.entries) {
 				return
 			}
 			e := r.entries[id]
-			border := o.(*fyne.Container)
+			item := o.(*rosterItem)
+			item.onSecondary = func(pos fyne.Position) { r.g.showPeerMenu(e, pos) }
+			border := item.content
 			dotWrap := border.Objects[1].(*fyne.Container)
 			dot := dotWrap.Objects[0].(*canvas.Circle)
 			box := border.Objects[0].(*fyne.Container)

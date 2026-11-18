@@ -25,7 +25,7 @@ import (
 //
 // Empty until a real release key exists: FetchManifest fails closed with a
 // clear error rather than attempting to verify against nothing.
-const UpdatePubKey = ""
+const UpdatePubKey = "+Whv+SI6XAnsjfHAP0RdiLNvg5BaxEoRYsBSdPk+1ZQ="
 
 // maxManifestBytes bounds the manifest + signature fetch; both are small
 // JSON/text documents, so this is generous headroom, not a real limit.
@@ -107,6 +107,15 @@ func (f *Fetcher) FetchManifest(ctx context.Context) (*Manifest, error) {
 	}
 	return &m, nil
 }
+
+// LastSeq returns the highest manifest Seq this client has accepted.
+func (f *Fetcher) LastSeq() (int64, error) { return f.loadSeq() }
+
+// RestoreSeq sets the high-water mark back to seq. A caller uses it when a
+// manifest was accepted but its artifact then failed to download or verify,
+// so the next run retries the same release instead of rejecting it as "not
+// newer". It never lowers protection for a release that was fully installed.
+func (f *Fetcher) RestoreSeq(seq int64) error { return f.saveSeq(seq) }
 
 // CheckSelf reports whether a is strictly newer than this running binary's
 // own version.Version.

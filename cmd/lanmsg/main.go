@@ -110,7 +110,9 @@ func (g *guiApp) startClient() {
 	}
 	if !g.pumpStarted {
 		g.pumpStarted = true
-		go g.pumpEvents()
+		pctx, pcancel := context.WithCancel(g.ctx)
+		g.pumpCancel = pcancel
+		go g.pumpEvents(pctx, g.client)
 	}
 }
 
@@ -139,4 +141,32 @@ func (g *guiApp) promptPassphrase(onDone func()) {
 		}, g.win)
 	form.Resize(fyne.NewSize(420, 160))
 	form.Show()
+}
+
+// resetConnection forgets the relay connection settings and returns to the
+// setup wizard so the device can re-enroll (at the same or a different relay).
+// With wipeIdentity it also deletes this device's keys and message history.
+func (g *guiApp) resetConnection(wipeIdentity bool) {
+	dir := g.cfg.Dir()
+	if g.pumpCancel != nil {
+		g.pumpCancel()
+		g.pumpCancel = nil
+	}
+	g.pumpStarted = false
+	if g.client != nil {
+		g.client.Stop()
+		_ = g.client.Close()
+		g.client = nil
+	}
+	if err := clientcore.ResetConnection(dir, wipeIdentity); err != nil {
+		dialog.ShowError(err, g.win)
+	}
+	cfg, err := clientcore.LoadConfig(dir)
+	if err != nil {
+		dialog.ShowError(err, g.win)
+		return
+	}
+	g.cfg = cfg
+	g.roster, g.convo, g.connLabel, g.statusSel, g.adminBtn = nil, nil, nil, nil, nil
+	g.showWizard()
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"fyne.io/fyne/v2"
@@ -11,12 +12,12 @@ import (
 )
 
 // pumpEvents forwards clientcore events onto the Fyne UI goroutine.
-func (g *guiApp) pumpEvents() {
+func (g *guiApp) pumpEvents(ctx context.Context, client *clientcore.Client) {
 	for {
 		select {
-		case <-g.ctx.Done():
+		case <-ctx.Done():
 			return
-		case ev, ok := <-g.client.Events():
+		case ev, ok := <-client.Events():
 			if !ok {
 				return
 			}
@@ -46,6 +47,10 @@ func (g *guiApp) handleEvent(ev clientcore.Event) {
 		if g.convo != nil && ev.PeerID == g.convo.peerID {
 			g.convo.markState(ev.MsgID, ev.MsgState)
 		}
+
+	case clientcore.EventHistoryCleared:
+		g.reloadConversation(ev.PeerID)
+		g.refreshRoster()
 
 	case clientcore.EventKeyChanged:
 		g.onKeyChanged(ev.PeerID)

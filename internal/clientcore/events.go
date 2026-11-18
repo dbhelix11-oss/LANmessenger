@@ -36,6 +36,7 @@ const (
 	EventMessageState   EventKind = "message_state"   // an outbound message's state changed (e.g. delivered)
 	EventKeyChanged     EventKind = "key_changed"     // a peer's keys changed; re-verification needed
 	EventFileProgress   EventKind = "file_progress"   // a file transfer advanced
+	EventHistoryCleared EventKind = "history_cleared" // a conversation was deleted (by us or by the peer)
 	EventError          EventKind = "error"           // a non-fatal error worth surfacing
 	EventPendingChanged EventKind = "pending_changed" // the admin pending-device list may have changed
 

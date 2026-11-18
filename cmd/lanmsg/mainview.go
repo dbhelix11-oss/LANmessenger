@@ -146,4 +146,52 @@ func (g *guiApp) selectPeer(e clientcore.RosterEntry) {
 	g.convo.setPeer(e, history)
 }
 
-var _ = fyne.NewSize
+// showPeerMenu pops up the right-click menu for one person in the roster.
+func (g *guiApp) showPeerMenu(e clientcore.RosterEntry, pos fyne.Position) {
+	menu := fyne.NewMenu("",
+		fyne.NewMenuItem("Verify fingerprint…", func() { g.showVerifyDialog(e.DeviceID) }),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Delete history (for me only)…", func() { g.confirmClearHistory(e, false) }),
+		fyne.NewMenuItem("Delete history (for me and "+e.DisplayName+")…", func() { g.confirmClearHistory(e, true) }),
+	)
+	widget.ShowPopUpMenuAtPosition(menu, g.win.Canvas(), pos)
+}
+
+// confirmClearHistory asks before deleting a conversation, then does it.
+func (g *guiApp) confirmClearHistory(e clientcore.RosterEntry, both bool) {
+	msg := fmt.Sprintf("Delete your copy of the conversation with %s?\n\n%s's copy is not touched.", e.DisplayName, e.DisplayName)
+	title := "Delete history for me"
+	if both {
+		title = "Delete history for both"
+		msg = fmt.Sprintf("Delete the conversation with %s on this device AND ask %s's device to delete it too?\n\n"+
+			"Their app performs the deletion when it receives the request (immediately if they are online,\n"+
+			"otherwise the next time they connect). A device running an older version, or one that is\n"+
+			"modified, may ignore the request. This cannot be undone.", e.DisplayName, e.DisplayName)
+	}
+	dialog.ShowConfirm(title, msg, func(ok bool) {
+		if !ok {
+			return
+		}
+		ctx, cancel := context.WithTimeout(g.ctx, 5*time.Second)
+		defer cancel()
+		if err := g.client.ClearHistory(ctx, e.DeviceID, both); err != nil {
+			dialog.ShowError(err, g.win)
+			return
+		}
+		g.reloadConversation(e.DeviceID)
+		g.refreshRoster()
+	}, g.win)
+}
+
+// reloadConversation redraws the open conversation if it is with peerID.
+func (g *guiApp) reloadConversation(peerID string) {
+	if g.convo == nil || g.convo.peerID != peerID {
+		return
+	}
+	history, err := g.client.History(peerID, 500)
+	if err != nil {
+		g.setStatusLine(err.Error())
+		return
+	}
+	g.convo.setPeer(g.convo.peer, history)
+}

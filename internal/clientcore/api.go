@@ -117,6 +117,49 @@ func (c *Client) SendText(ctx context.Context, peerID, text string) (Message, er
 	return msg, nil
 }
 
+// ClearHistory deletes this device's copy of the conversation with peerID. If
+// both is true it also asks the peer to delete theirs, via an end-to-end
+// sealed InnerClearHistory message (queued like any message if offline or if
+// the peer is offline; the peer's client, not the relay, performs the delete).
+// Texts still waiting in the outbox for that peer are dropped first so they
+// cannot arrive after the clear request.
+func (c *Client) ClearHistory(ctx context.Context, peerID string, both bool) error {
+	upTo := time.Now().UnixMilli()
+	if both {
+		peer, err := c.store.getPeer(peerID)
+		if err != nil {
+			return ErrUnknownPeer
+		}
+		inner, err := proto.NewInner(proto.InnerClearHistory, proto.ClearHistoryBody{UpTo: upTo})
+		if err != nil {
+			return err
+		}
+		nonceB64, ctB64, err := c.sealInner(peer, inner)
+		if err != nil {
+			return err
+		}
+		if err := c.store.deleteOutboxForPeer(peerID); err != nil {
+			return err
+		}
+		id := randID()
+		sent := false
+		if w := c.currentConn(); w != nil && c.State() == StateReady {
+			frame := proto.Msg{To: peerID, MsgID: id, Nonce: nonceB64, Ciphertext: ctB64, TS: upTo}
+			sent = w.send(ctx, proto.TypeMsg, "", frame) == nil
+		}
+		if !sent {
+			if err := c.store.enqueueOutbox(outboxRow{MsgID: id, PeerID: peerID, Nonce: nonceB64, Ciphertext: ctB64, TS: upTo}); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := c.store.deleteMessages(peerID, 0); err != nil {
+		return err
+	}
+	c.emit(Event{Kind: EventHistoryCleared, PeerID: peerID})
+	return nil
+}
+
 // flushOutbox resends every message that was composed while offline, in order,
 // stopping at the first send failure (the next reconnect retries the rest).
 func (c *Client) flushOutbox(ctx context.Context, w *wsConn) {

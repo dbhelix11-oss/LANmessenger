@@ -60,6 +60,7 @@ type guiApp struct {
 	adminBtn  *widget.Button
 
 	pumpStarted bool
+	pumpCancel  context.CancelFunc
 
 	// adminReload, when set, refreshes the open admin panel.
 	adminReload func()
