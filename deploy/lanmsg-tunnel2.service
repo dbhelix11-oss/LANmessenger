@@ -1,0 +1,28 @@
+
+[Unit]
+Description=lanmessenger cloud tunnel 2 (router relay; local ports 8444/9444)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lanmsg-tunnel
+Group=lanmsg-tunnel
+ExecStart=/usr/local/bin/lanmsg-tunnel2 run -config /etc/lanmsg-tunnel2/tunnel.toml
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryDenyWriteExecute=true
+ReadWritePaths=/etc/lanmsg-tunnel2
+
+[Install]
+WantedBy=multi-user.target

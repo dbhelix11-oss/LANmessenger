@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-11-17 — relay moved onto the OpenWrt router (fresh identity) + second tunnel
+
+### Added
+
+- `deploy/lanmsg-tunnel2.service` — systemd unit for a second, independent
+  `lanmsg-tunnel` instance on the cloud box (own binary name, config dir
+  and local ports 8444/9444), so a new relay can be tunnelled without
+  touching the existing one.
+
+### Changed
+
+- `deploy/lanmsg-server.init` — paths now `/mnt/ssd/lanmsg/...` (the drive
+  that is actually mounted on the router) instead of `/mnt/lanmsg`.
+
+### Deployed (not in the repo)
+
+- Router (OpenWrt 25.12.5, ipq40xx, ARMv7): relay binary, procd service,
+  fresh TLS identity and roster; Tor installed with `apk add tor` (client
+  SOCKS only). OpenWrt 25.12 uses `apk`, not `opkg`.
+- Cloud box: Tor hidden-service entry #2 forwarding 8443/9443 to
+  127.0.0.1:8444/9444; `lanmsg-tunnel2` running beside the old tunnel.
+- Router dials the new tunnel over Tor and authenticates. The Pi relay and
+  old tunnel are untouched as rollback. Clients must re-enroll
+  (new fingerprint).
+
 ## 2026-09-29 — deploy: procd init script for an OpenWRT router deployment
 
 ### Added

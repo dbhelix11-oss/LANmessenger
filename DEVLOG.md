@@ -1219,3 +1219,19 @@ from plan approval alone. Step 3 (cross-compile the binary) and drafting
 the procd init script as a checked-in `deploy/` artifact are pure local
 repo work and can proceed without that.
 >   with backoff and recovers when it's restarted.
+
+
+## 2026-11-17 — Router relay live; second tunnel; lessons
+
+Decisions: fresh relay identity (no Pi data migration), new second tunnel
+rather than reusing the old one. Router storage is the ext4 SSD at
+/mnt/ssd, not /mnt/lanmsg as planned; OpenWrt 25.12 ships `apk`, not `opkg`.
+Pitfalls hit: (1) a secret entered with `ssh -t ... 'read -r S'` came through
+empty, giving "backend auth rejected"; (2) pasting `read -r S` together with
+the following command makes `read` swallow the command as its input — send
+them as separate steps. (3) The second tunnel needs distinct local ports
+(8444/9444) because the first already binds 8443/9443; the .onion side can
+keep 8443/9443. I wrongly guessed the router had connected to the OLD
+tunnel; comparing the two hostname files showed it was the new one.
+Not yet done: end-to-end test of a remote client over the new .onion;
+retiring the Pi relay and old tunnel.

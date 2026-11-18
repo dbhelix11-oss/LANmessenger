@@ -18,12 +18,12 @@ USE_PROCD=1
 START=95
 STOP=10
 
-LANMSG_BIN="/mnt/lanmsg/bin/lanmsg-server"
-LANMSG_CONFIG="/mnt/lanmsg/etc/server.toml"
+LANMSG_BIN="/mnt/ssd/lanmsg/bin/lanmsg-server"
+LANMSG_CONFIG="/mnt/ssd/lanmsg/etc/server.toml"
 
 start_service() {
 	[ -x "$LANMSG_BIN" ] || {
-		echo "lanmsg-server: $LANMSG_BIN not found (is /mnt/lanmsg mounted?)" >&2
+		echo "lanmsg-server: $LANMSG_BIN not found (is /mnt/ssd/lanmsg mounted?)" >&2
 		return 1
 	}
 
