@@ -51,6 +51,8 @@ func main() {
 		err = cmdRoster(dir)
 	case "send":
 		err = cmdSend(dir, args[1:])
+	case "clear":
+		err = cmdClear(dir, args[1:])
 	case "status":
 		err = cmdStatus(dir, args[1:])
 	case "watch":
@@ -71,6 +73,7 @@ func usage() {
   lanmsg-cli [-config dir] enroll -server host:port -name NAME [-fingerprint FP] [-passphrase P]
   lanmsg-cli [-config dir] roster
   lanmsg-cli [-config dir] send -to NAME_OR_ID -text "message"
+  lanmsg-cli [-config dir] clear -to NAME_OR_ID [-both]
   lanmsg-cli [-config dir] status available|away|busy|dnd|invisible
   lanmsg-cli [-config dir] watch
 `)
@@ -240,6 +243,47 @@ func cmdSend(dir string, args []string) error {
 	}
 	fmt.Println("sent")
 	checkForUpdateOneShot(cl, dir)
+	return nil
+}
+
+// cmdClear deletes the local conversation with someone; with -both it also
+// asks their client to delete theirs (a sealed clear_history request).
+func cmdClear(dir string, args []string) error {
+	fs := flag.NewFlagSet("clear", flag.ExitOnError)
+	to := fs.String("to", "", "person whose conversation to delete (display name or device id)")
+	both := fs.Bool("both", false, "also ask their client to delete its copy")
+	_ = fs.Parse(args)
+	if *to == "" {
+		return errors.New("clear needs -to")
+	}
+	cl, _, err := openClient(dir)
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+
+	ctx, cancel := signalContext()
+	defer cancel()
+	if err := cl.Start(ctx); err != nil {
+		return err
+	}
+	waitReady(ctx, cl, 10*time.Second)
+	peerID, err := waitForPeer(ctx, cl, *to, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	if err := cl.ClearHistory(ctx, peerID, *both); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(1500 * time.Millisecond): // let the request reach the relay
+	}
+	if *both {
+		fmt.Println("cleared (and asked them to clear theirs)")
+	} else {
+		fmt.Println("cleared")
+	}
 	return nil
 }
 

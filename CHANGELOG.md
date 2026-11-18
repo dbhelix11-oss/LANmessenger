@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-17 (evening) — lanmsg-cli clear; Android client gains delete-history and update check
+
+### Added
+
+- `lanmsg-cli clear -to NAME [-both]` — delete the local conversation with
+  someone; `-both` also sends the sealed `clear_history` request. Used by the
+  AndroidSSH interop test to prove the phone honours LANmessenger's request.
+
+### Related (AndroidSSH repo)
+
+- The Android messenger now reads the relay's signed update list, shows a
+  download progress bar and installs via Android's installer, and implements
+  delete-history both ways (wire-compatible `clear_history`). Android entries
+  (`target androidssh, os android, arch any`) are published through the same
+  `lanmsg-signrelease` manifest. Interop test against a real relay: 24 checks.
+
+### Changed
+
+- `cmd/lanmsg/FyneApp.toml` build number 10 (bumped by `fyne package`).
+
+
 ## 2026-11-17 (later) — GUI: delete history + re-enroll; self-update staged and proven; release key
 
 ### Added
