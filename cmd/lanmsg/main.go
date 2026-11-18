@@ -49,6 +49,8 @@ func main() {
 	g.win.Resize(fyne.NewSize(940, 620))
 	g.win.SetMaster()
 
+	g.watchFocus()
+	g.focused.Store(!*startMinimized) // a normal start opens the window focused
 	g.buildTray()
 	g.win.SetCloseIntercept(func() {
 		if g.hasTray {

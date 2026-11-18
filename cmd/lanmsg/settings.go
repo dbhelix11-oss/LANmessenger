@@ -40,6 +40,7 @@ func (g *guiApp) showSettings() {
 	)
 
 	var d dialog.Dialog
+	checkBtn := widget.NewButton("Check for updates", func() { g.runUpdateCheck(true) })
 	resetBtn := widget.NewButton("Delete connection settings and re-enroll…", func() {
 		if d != nil {
 			d.Hide()
@@ -50,6 +51,8 @@ func (g *guiApp) showSettings() {
 
 	content := container.NewVBox(
 		form,
+		widget.NewSeparator(),
+		container.NewHBox(widget.NewLabel("Version "+versionLabel()), checkBtn),
 		widget.NewSeparator(),
 		resetBtn,
 		widget.NewSeparator(),

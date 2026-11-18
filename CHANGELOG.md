@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-11-17 (night) — GUI: update check + install, tray badge with focus, click fix, version 0.1.3
+
+### Added
+
+- **GUI update check** (`cmd/lanmsg/update.go`): after each (re)connect (at most every 10 min) and from
+  Settings -> "Check for updates", the GUI reads the relay's signed update list, and offers a newer `lanmsg`
+  build for its OS/CPU. On Linux/Windows "Install and restart" downloads, verifies the SHA-256, swaps the
+  program file and re-execs; on macOS it only shows a notice (a signed .app cannot be patched in place).
+  Proven end to end on Linux: 0.1.1 -> 0.1.2 swapped itself and restarted.
+- `update.Fetcher.CheckManifest` — verifies like `FetchManifest` but accepts an equal sequence number and
+  writes nothing, so a notice survives reconnects and a just-installed release reads "up to date";
+  `RestoreSeq` records the sequence only on install. Tested (`TestCheckManifestAcceptsEqualSeqAndWritesNothing`).
+- Tray badge now appears for any message that does not land in the open conversation of a focused window;
+  focus comes from Fyne's own foreground/background callbacks (driven by the OS focus event on Windows,
+  macOS, Linux). Windows and macOS paths untested here.
+
+### Fixed
+
+- Left-click on a roster row did nothing since the right-click wrapper (`rosterItem`) swallowed the click;
+  it now implements `Tapped` and selects the row.
+
+### Changed
+
+- `internal/version.Version` is 0.1.3 (0.1.2 and 0.1.3 were each built, signed and staged on the relay for
+  update testing; 0.1.3 staging was still waiting for its signature when the session closed).
+
+
 ## 2026-11-17 (evening) — lanmsg-cli clear; Android client gains delete-history and update check
 
 ### Added

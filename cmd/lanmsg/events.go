@@ -102,6 +102,7 @@ func (g *guiApp) onConnState(s clientcore.ConnState) {
 		if g.roster == nil {
 			g.showMain()
 		}
+		g.checkForUpdate()
 		// Admin status is known only after the handshake completes.
 		if g.adminBtn != nil {
 			wantHidden := !g.client.IsAdmin()
@@ -126,8 +127,11 @@ func (g *guiApp) onMessage(ev clientcore.Event) {
 	}
 
 	if ev.Message.Direction == clientcore.DirIn {
-		if g.trayHidden.Load() {
-			g.markUnread()
+		// Red badge on the tray icon unless the message landed in the conversation
+		// that is open on screen AND the window has focus (a hidden or unfocused
+		// window never counts as "open").
+		if !g.focused.Load() || g.trayHidden.Load() || g.convo == nil || ev.PeerID != g.convo.peerID {
+			g.markUnreadFrom(ev.PeerID)
 		}
 		name := g.peerName(ev.PeerID)
 		if g.shouldNotify(ev.PeerID) {

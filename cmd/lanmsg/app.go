@@ -9,7 +9,9 @@ import (
 	"image/color"
 	"log/slog"
 	"os"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
@@ -51,6 +53,10 @@ type guiApp struct {
 	// hasUnread is true when a message arrived while the window was hidden to
 	// the tray and hasn't been shown again since — drives the tray icon badge.
 	hasUnread atomic.Bool
+	// unreadFrom tracks who the unseen messages are from, so the tray badge
+	// stays up until each of them has been opened (guarded by unreadMu).
+	unreadMu   sync.Mutex
+	unreadFrom map[string]bool
 
 	// main view widgets
 	roster    *rosterView
@@ -60,7 +66,16 @@ type guiApp struct {
 	adminBtn  *widget.Button
 
 	pumpStarted bool
-	pumpCancel  context.CancelFunc
+
+	// focused is true while the app's window has keyboard focus, driven by the
+	// OS's own focus events (see watchFocus).
+	focused atomic.Bool
+
+	// update check state (see update.go)
+	updateChecking  atomic.Bool
+	lastUpdateCheck time.Time
+	offeredVersion  string
+	pumpCancel      context.CancelFunc
 
 	// adminReload, when set, refreshes the open admin panel.
 	adminReload func()
@@ -116,4 +131,22 @@ func newLogger() *slog.Logger {
 		level = slog.LevelDebug
 	}
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+}
+
+// watchFocus keeps g.focused in step with the window. Fyne's desktop driver
+// raises these two callbacks from the windowing library's own focus event on
+// Windows, macOS and Linux (X11 and Wayland), so one hook covers every OS
+// without per-platform code. Gaining focus counts as "seen" for the
+// conversation that is open.
+func (g *guiApp) watchFocus() {
+	lc := g.fapp.Lifecycle()
+	lc.SetOnEnteredForeground(func() {
+		g.focused.Store(true)
+		fyne.Do(func() {
+			if g.convo != nil && g.convo.peerID != "" && !g.trayHidden.Load() {
+				g.clearUnreadFrom(g.convo.peerID)
+			}
+		})
+	})
+	lc.SetOnExitedForeground(func() { g.focused.Store(false) })
 }

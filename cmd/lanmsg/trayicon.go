@@ -82,8 +82,8 @@ func badgeWithDot(src []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// markUnread badges the tray icon to show an unseen message arrived while the
-// window was hidden. A no-op if there's no tray (hasTray false).
+// markUnread badges the tray icon to show an unseen message arrived (window
+// hidden, or the message is from someone whose conversation is not open). A no-op if there's no tray (hasTray false).
 func (g *guiApp) markUnread() {
 	if !g.hasTray || g.hasUnread.Swap(true) {
 		return // already marked, or no tray to badge
@@ -93,9 +93,35 @@ func (g *guiApp) markUnread() {
 	}
 }
 
-// clearUnread restores the plain tray icon. Safe to call even when nothing
-// was marked unread.
+// markUnreadFrom records an unseen message from peerID and shows the badge.
+func (g *guiApp) markUnreadFrom(peerID string) {
+	g.unreadMu.Lock()
+	if g.unreadFrom == nil {
+		g.unreadFrom = map[string]bool{}
+	}
+	g.unreadFrom[peerID] = true
+	g.unreadMu.Unlock()
+	g.markUnread()
+}
+
+// clearUnreadFrom marks peerID's messages as seen (their conversation was
+// opened); the badge goes away once nobody has unseen messages.
+func (g *guiApp) clearUnreadFrom(peerID string) {
+	g.unreadMu.Lock()
+	delete(g.unreadFrom, peerID)
+	empty := len(g.unreadFrom) == 0
+	g.unreadMu.Unlock()
+	if empty {
+		g.clearUnread()
+	}
+}
+
+// clearUnread restores the plain tray icon and forgets who was unseen. Safe
+// to call even when nothing was marked unread.
 func (g *guiApp) clearUnread() {
+	g.unreadMu.Lock()
+	g.unreadFrom = nil
+	g.unreadMu.Unlock()
 	if !g.hasTray || !g.hasUnread.Swap(false) {
 		return
 	}

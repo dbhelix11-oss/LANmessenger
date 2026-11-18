@@ -283,3 +283,36 @@ func TestSwapAtomicity(t *testing.T) {
 		t.Fatalf("expected execPath to be executable after swap, mode = %v", info.Mode())
 	}
 }
+
+func TestCheckManifestAcceptsEqualSeqAndWritesNothing(t *testing.T) {
+	pub, priv := testKeypair(t)
+	stateDir := t.TempDir()
+
+	srv := serveManifest(t, Manifest{Seq: 5}, priv)
+	defer srv.Close()
+	f := newTestFetcher(srv.URL, pub, stateDir)
+
+	// Nothing seen yet, then again and again: always accepted, never persisted.
+	for i := 0; i < 3; i++ {
+		if _, err := f.CheckManifest(context.Background()); err != nil {
+			t.Fatalf("check %d: %v", i, err)
+		}
+	}
+	if seq, _ := f.LastSeq(); seq != 0 {
+		t.Fatalf("CheckManifest wrote seq %d; it must write nothing", seq)
+	}
+
+	// After installing release seq 5 (the caller records it), the same list is
+	// still fine to see again ("nothing newer"), but an older one is a rollback.
+	if err := f.RestoreSeq(5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.CheckManifest(context.Background()); err != nil {
+		t.Fatalf("same list after install: %v", err)
+	}
+	old := serveManifest(t, Manifest{Seq: 4}, priv)
+	defer old.Close()
+	if _, err := newTestFetcher(old.URL, pub, stateDir).CheckManifest(context.Background()); err == nil {
+		t.Fatal("expected an older list to be rejected as a rollback")
+	}
+}

@@ -16,6 +16,7 @@ import (
 type rosterItem struct {
 	widget.BaseWidget
 	content     *fyne.Container
+	onTap       func()
 	onSecondary func(pos fyne.Position)
 }
 
@@ -27,6 +28,15 @@ func newRosterItem(content *fyne.Container) *rosterItem {
 
 func (it *rosterItem) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(it.content)
+}
+
+// Tapped implements fyne.Tappable. A widget that handles only the right-click
+// would swallow the left-click before the list sees it (Fyne gives a click to the
+// deepest widget that handles any click), so selection is forwarded here.
+func (it *rosterItem) Tapped(*fyne.PointEvent) {
+	if it.onTap != nil {
+		it.onTap()
+	}
 }
 
 // TappedSecondary implements fyne.SecondaryTappable.
@@ -65,6 +75,7 @@ func newRosterView(g *guiApp) *rosterView {
 			}
 			e := r.entries[id]
 			item := o.(*rosterItem)
+			item.onTap = func() { r.list.Select(id) }
 			item.onSecondary = func(pos fyne.Position) { r.g.showPeerMenu(e, pos) }
 			border := item.content
 			dotWrap := border.Objects[1].(*fyne.Container)

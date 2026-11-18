@@ -144,6 +144,7 @@ func (g *guiApp) selectPeer(e clientcore.RosterEntry) {
 		return
 	}
 	g.convo.setPeer(e, history)
+	g.clearUnreadFrom(e.DeviceID)
 }
 
 // showPeerMenu pops up the right-click menu for one person in the roster.

@@ -68,6 +68,46 @@ func NewFetcher(serverAddr string, tlsConfig *tls.Config, socksProxy string, sta
 // discards the manifest entirely — "fail ⇒ stop, update ignored" — rather
 // than falling back to some partial trust.
 func (f *Fetcher) FetchManifest(ctx context.Context) (*Manifest, error) {
+	m, err := f.fetchVerified(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lastSeq, err := f.loadSeq()
+	if err != nil {
+		return nil, err
+	}
+	if m.Seq <= lastSeq {
+		return nil, fmt.Errorf("update: manifest seq %d is not newer than last seen %d (possible rollback)", m.Seq, lastSeq)
+	}
+	if err := f.saveSeq(m.Seq); err != nil {
+		return nil, fmt.Errorf("update: persist manifest seq: %w", err)
+	}
+	return m, nil
+}
+
+// CheckManifest fetches and verifies the manifest like FetchManifest, but for
+// a caller that only wants to know what is on offer: an equal sequence number
+// is fine (the same list seen again), an older one is rejected as a rollback,
+// and nothing is written. A long-running program that shows a notice uses this
+// and calls RestoreSeq(m.Seq) only once it has actually installed a release.
+func (f *Fetcher) CheckManifest(ctx context.Context) (*Manifest, error) {
+	m, err := f.fetchVerified(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lastSeq, err := f.loadSeq()
+	if err != nil {
+		return nil, err
+	}
+	if m.Seq < lastSeq {
+		return nil, fmt.Errorf("update: manifest seq %d is older than last seen %d (possible rollback)", m.Seq, lastSeq)
+	}
+	return m, nil
+}
+
+// fetchVerified downloads the manifest and its signature, checks the
+// signature against the compiled-in release key and parses it.
+func (f *Fetcher) fetchVerified(ctx context.Context) (*Manifest, error) {
 	if f.pubKeyB64 == "" {
 		return nil, fmt.Errorf("update: no release public key compiled in; self-update is disabled until one is configured (see cmd/lanmsg-signrelease)")
 	}
@@ -95,16 +135,6 @@ func (f *Fetcher) FetchManifest(ctx context.Context) (*Manifest, error) {
 		return nil, fmt.Errorf("update: parse manifest: %w", err)
 	}
 
-	lastSeq, err := f.loadSeq()
-	if err != nil {
-		return nil, err
-	}
-	if m.Seq <= lastSeq {
-		return nil, fmt.Errorf("update: manifest seq %d is not newer than last seen %d (possible rollback)", m.Seq, lastSeq)
-	}
-	if err := f.saveSeq(m.Seq); err != nil {
-		return nil, fmt.Errorf("update: persist manifest seq: %w", err)
-	}
 	return &m, nil
 }
 
