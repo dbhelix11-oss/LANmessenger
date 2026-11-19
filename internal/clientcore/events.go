@@ -39,6 +39,8 @@ const (
 	EventHistoryCleared EventKind = "history_cleared" // a conversation was deleted (by us or by the peer)
 	EventError          EventKind = "error"           // a non-fatal error worth surfacing
 	EventPendingChanged EventKind = "pending_changed" // the admin pending-device list may have changed
+	EventAdminAlert     EventKind = "admin_alert"     // the relay wants the admin's attention (see Alert)
+	EventSelfRenamed    EventKind = "self_renamed"    // an admin changed this device's display name (see Name)
 
 	// EventUpdateAvailable: the relay is running a newer version than this
 	// client build. Soft notice only — the connection is unaffected.
@@ -63,6 +65,8 @@ type Event struct {
 	Progress      *FileProgress         // EventFileProgress
 	Err           error                 // EventError
 	ServerVersion string                // EventUpdateAvailable
+	Alert         *proto.AdminAlert     // EventAdminAlert
+	Name          string                // EventSelfRenamed: the new display name
 }
 
 // FileProgress reports how far a file transfer has got.

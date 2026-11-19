@@ -2,6 +2,7 @@ package clientcore
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -37,6 +38,8 @@ type Client struct {
 	mu            sync.RWMutex
 	state         ConnState
 	admin         bool
+	adminKey      ed25519.PrivateKey // set while admin mode is unlocked
+	deviceModel   string
 	serverVersion string
 	conn          *wsConn
 	desired       proto.PresenceSet

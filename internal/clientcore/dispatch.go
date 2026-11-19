@@ -25,7 +25,23 @@ func (c *Client) dispatch(ctx context.Context, w *wsConn, env *proto.Envelope) {
 	case proto.TypeAdminPendingList:
 		c.routeReply(env)
 		c.emit(Event{Kind: EventPendingChanged})
+	case proto.TypeProfileUpdate:
+		var pu proto.ProfileUpdate
+		if err := env.Unmarshal(&pu); err == nil {
+			c.adoptName(pu.DisplayName)
+		}
+	case proto.TypeAdminAlert:
+		var a proto.AdminAlert
+		if err := env.Unmarshal(&a); err == nil {
+			c.emit(Event{Kind: EventAdminAlert, Alert: &a})
+		}
+	case proto.TypeAdminDeviceList, proto.TypeAdminOK:
+		c.routeReply(env)
 	case proto.TypeError:
+		// An error that answers an in-flight request goes to its caller.
+		if c.routeReply(env) {
+			break
+		}
 		var e proto.ErrorBody
 		_ = env.Unmarshal(&e)
 		c.emitError(&RelayError{Code: e.Code, Message: e.Message})
@@ -40,6 +56,7 @@ func (c *Client) handleReady(ctx context.Context, w *wsConn, env *proto.Envelope
 	var rd proto.Ready
 	_ = env.Unmarshal(&rd)
 	c.applyProtocolGate(rd)
+	c.adoptName(rd.DisplayName)
 	c.mu.Lock()
 	c.admin = rd.Admin
 	desired := c.desired
@@ -48,6 +65,7 @@ func (c *Client) handleReady(ctx context.Context, w *wsConn, env *proto.Envelope
 	if err := w.send(ctx, proto.TypePresenceSet, "", desired); err != nil {
 		c.emitError(err)
 	}
+	go c.sendFacts(ctx, w)
 	c.flushOutbox(ctx, w)
 }
 
@@ -225,9 +243,9 @@ func (c *Client) newPending(id string) chan *proto.Envelope {
 	return ch
 }
 
-func (c *Client) routeReply(env *proto.Envelope) {
+func (c *Client) routeReply(env *proto.Envelope) bool {
 	if env.ID == "" {
-		return
+		return false
 	}
 	c.pendingMu.Lock()
 	ch := c.pending[env.ID]
@@ -235,7 +253,9 @@ func (c *Client) routeReply(env *proto.Envelope) {
 	c.pendingMu.Unlock()
 	if ch != nil {
 		ch <- env
+		return true
 	}
+	return false
 }
 
 func (c *Client) cancelPending(id string) {

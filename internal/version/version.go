@@ -12,7 +12,7 @@ import (
 // Version is this binary's release version (major.minor.patch). Bump it as
 // part of cutting a release; every cmd/* binary and internal/clientcore and
 // internal/servercore import this rather than hardcoding their own.
-const Version = "0.1.3"
+const Version = "0.1.5"
 
 // BuildInfo returns a short, human-readable build identifier — a 7-char git
 // commit hash, plus "-dirty" if the working tree had uncommitted changes at

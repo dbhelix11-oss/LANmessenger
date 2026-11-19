@@ -32,14 +32,27 @@ func (g *guiApp) showSettings() {
 	serverInfo := widget.NewLabel(fmt.Sprintf("%s\n%s", g.cfg.ServerAddr, g.cfg.CertFingerprint))
 	serverInfo.TextStyle = fyne.TextStyle{Monospace: true}
 
+	// Your own name: shown as it is now; an admin (you) can change it here. Everyone
+	// else's roster, and this device, take the new name.
+	var d dialog.Dialog
+	myName := container.NewHBox(widget.NewLabel(g.client.DisplayName()))
+	if g.adminAvailable() {
+		myName.Add(widget.NewButton("Change… (admin)", func() {
+			if d != nil {
+				d.Hide()
+			}
+			g.promptRename(g.client.DeviceID(), g.client.DisplayName(), nil)
+		}))
+	}
+
 	form := widget.NewForm(
+		widget.NewFormItem("My display name", myName),
 		widget.NewFormItem("Notifications", notify),
 		widget.NewFormItem("Downloads folder", downloads),
 		widget.NewFormItem("This device's fingerprint", myFP),
 		widget.NewFormItem("Relay", serverInfo),
 	)
 
-	var d dialog.Dialog
 	checkBtn := widget.NewButton("Check for updates", func() { g.runUpdateCheck(true) })
 	resetBtn := widget.NewButton("Delete connection settings and re-enroll…", func() {
 		if d != nil {

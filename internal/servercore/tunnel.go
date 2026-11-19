@@ -29,7 +29,7 @@ func (s *Server) runTunnel(ctx context.Context) {
 		if err == nil {
 			backoff = time.Second
 			ln := tunnel.NewSessionListener(sess, s.log)
-			err = s.serveHTTP(ctx, ln)
+			err = s.serveHTTP(ctx, ln, "tunnel")
 			_ = sess.Close()
 			if ctx.Err() != nil {
 				return

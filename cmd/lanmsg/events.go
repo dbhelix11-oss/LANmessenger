@@ -68,6 +68,13 @@ func (g *guiApp) handleEvent(ev clientcore.Event) {
 			g.adminReload()
 		}
 
+	case clientcore.EventSelfRenamed:
+		g.setStatusLine("The admin changed your name to " + ev.Name)
+		g.notify("Your name was changed", "You are now shown as \""+ev.Name+"\".")
+
+	case clientcore.EventAdminAlert:
+		g.onAdminAlert(ev.Alert)
+
 	case clientcore.EventError:
 		if ev.Err != nil {
 			g.setStatusLine(ev.Err.Error())
@@ -105,7 +112,7 @@ func (g *guiApp) onConnState(s clientcore.ConnState) {
 		g.checkForUpdate()
 		// Admin status is known only after the handshake completes.
 		if g.adminBtn != nil {
-			wantHidden := !g.client.IsAdmin()
+			wantHidden := !g.adminAvailable()
 			if g.adminBtn.Hidden != wantHidden {
 				g.adminBtn.Hidden = wantHidden
 				g.adminBtn.Refresh()

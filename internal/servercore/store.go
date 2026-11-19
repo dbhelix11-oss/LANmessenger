@@ -52,6 +52,73 @@ CREATE TABLE queue (
 CREATE INDEX queue_recipient_idx ON queue(recipient, id);
 `,
 	},
+	{
+		Name: "0002_device_records",
+		SQL: `
+-- One row per connection; no foreign key so history survives device removal.
+CREATE TABLE conn_log (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	device_id       TEXT NOT NULL,
+	connected_at    INTEGER NOT NULL,
+	disconnected_at INTEGER,
+	path            TEXT NOT NULL DEFAULT '',
+	remote_host     TEXT NOT NULL DEFAULT '',
+	tls_hash        TEXT NOT NULL DEFAULT '',
+	client_version  TEXT NOT NULL DEFAULT '',
+	rtt_avg_ms      INTEGER NOT NULL DEFAULT 0,
+	rtt_min_ms      INTEGER NOT NULL DEFAULT 0,
+	rtt_max_ms      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX conn_log_device_idx ON conn_log(device_id, id);
+
+CREATE TABLE device_facts (
+	device_id  TEXT PRIMARY KEY,
+	facts_json TEXT NOT NULL,
+	verified   INTEGER NOT NULL DEFAULT 0,
+	updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE fact_changes (
+	id        INTEGER PRIMARY KEY AUTOINCREMENT,
+	device_id TEXT NOT NULL,
+	ts        INTEGER NOT NULL,
+	field     TEXT NOT NULL,
+	old       TEXT NOT NULL,
+	new       TEXT NOT NULL
+);
+CREATE INDEX fact_changes_device_idx ON fact_changes(device_id, id);
+`,
+	},
+	{
+		Name: "0003_conn_client_kind",
+		SQL: `
+ALTER TABLE conn_log ADD COLUMN client_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE conn_log ADD COLUMN client_os   TEXT NOT NULL DEFAULT '';
+ALTER TABLE conn_log ADD COLUMN client_arch TEXT NOT NULL DEFAULT '';
+`,
+	},
+	{
+		Name: "0004_revocation",
+		SQL: `
+ALTER TABLE devices ADD COLUMN revoked_at INTEGER;
+-- Attempts by a revoked registration to return; kept after the device is deleted.
+CREATE TABLE revoked_attempts (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	device_id   TEXT NOT NULL,
+	ts          INTEGER NOT NULL,
+	match       TEXT NOT NULL,
+	path        TEXT NOT NULL DEFAULT '',
+	remote_host TEXT NOT NULL DEFAULT '',
+	tls_hash    TEXT NOT NULL DEFAULT '',
+	client_kind TEXT NOT NULL DEFAULT '',
+	client_os   TEXT NOT NULL DEFAULT '',
+	signals     TEXT NOT NULL DEFAULT '',
+	new_name    TEXT NOT NULL DEFAULT '',
+	new_id      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX revoked_attempts_device_idx ON revoked_attempts(device_id, id);
+`,
+	},
 }
 
 func openServerStore(path string) (*serverStore, error) {
@@ -150,10 +217,21 @@ func (s *serverStore) setDeviceState(id string, state proto.EnrollState) error {
 	if state == proto.StateActive {
 		approvedAt = time.Now().Unix()
 	}
-	res, err := s.db.Exec(`UPDATE devices SET state = ?, approved_at = ? WHERE device_id = ?`,
-		string(state), approvedAt, id)
+	res, err := s.db.Exec(`UPDATE devices SET state = ?, approved_at = ?, revoked_at = CASE WHEN ? = 'revoked' THEN unixepoch() ELSE NULL END WHERE device_id = ?`,
+		string(state), approvedAt, string(state), id)
 	if err != nil {
 		return fmt.Errorf("servercore: set device state: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNoDevice
+	}
+	return nil
+}
+
+func (s *serverStore) setDisplayName(id, name string) error {
+	res, err := s.db.Exec(`UPDATE devices SET display_name = ? WHERE device_id = ?`, name, id)
+	if err != nil {
+		return fmt.Errorf("servercore: set display name: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return errNoDevice

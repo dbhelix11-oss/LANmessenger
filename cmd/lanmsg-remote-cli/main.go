@@ -45,6 +45,7 @@ import (
 const defaultSOCKSProxy = "127.0.0.1:9050"
 
 func main() {
+	clientcore.ClientKind = "remote-cli"
 	cfgDir := flag.String("config", "", "config directory (default: OS config dir + /lanmessenger-remote)")
 	socks := flag.String("socks", defaultSOCKSProxy, "local Tor SOCKS5 proxy address")
 	flag.Parse()

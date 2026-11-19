@@ -1249,3 +1249,25 @@ release. Fixed all three (3 min budget, RestoreSeq on failure, LANMSG_DEBUG
 output), rebuilt, re-signed as seq 2: update succeeded. Lesson: a "quiet
 best-effort" path needs a way to see why it did nothing. GUI clients still do
 not read the manifest (banner only from the relay's version) — see open items.
+
+
+## 2026-11-18 — Plan (approved): admin mode, key console, device Properties
+
+Decisions made in conversation:
+- Single admin identity = a dedicated Ed25519 *admin key*, passphrase-protected
+  on disk in `~/.lanmsg-keys/` (mode 0700), NOT `~/.ssh/`. Its public half is
+  stored in the relay config (`admin_key_pub`). When set, every admin frame
+  (list pending, approve, deny, list devices, remove, force re-auth) must carry
+  a fresh signature from that key (timestamp + nonce, replay-checked); the old
+  "device has the admin flag" check no longer grants anything.
+- Remove = delete the device row and drop its session (it must enroll again).
+  Force re-auth = set the device back to `pending` and drop its session.
+- Key-checking console in the GUI: all devices with fingerprints, a compare box
+  (type what someone read out, see match/mismatch), plus remove / re-auth.
+- Properties (context menu, admin-unlocked only): path label (LAN vs tunnel),
+  TLS ClientHello hash (JA3-style, built from the fields Go exposes), signed
+  client-declared facts with a change log, connect history and round-trip time.
+  Recording starts immediately. The real source address (PROXY protocol) is
+  explicitly NOT built, and nothing tries to unmask Tor clients.
+- Fingerprints are advisory; the device key pair is the identity.
+- Next discussion topic (to-do, not built): delta updates; measure first.

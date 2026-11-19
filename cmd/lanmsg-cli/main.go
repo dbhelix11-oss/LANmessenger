@@ -9,6 +9,7 @@
 //	lanmsg-cli [-config dir] send -to <name-or-id> -text "hello"
 //	lanmsg-cli [-config dir] status <available|away|busy|dnd|invisible>
 //	lanmsg-cli [-config dir] watch          # stay connected, print events
+//	lanmsg-cli [-config dir] admin devices|stats|pending|show|approve|deny|revoke|remove|reauth  # admin console (LAN only)
 package main
 
 import (
@@ -28,6 +29,7 @@ import (
 )
 
 func main() {
+	clientcore.ClientKind = "cli"
 	cfgDir := flag.String("config", "", "config directory (default: OS config dir + /lanmessenger)")
 	flag.Parse()
 	args := flag.Args()
@@ -57,6 +59,12 @@ func main() {
 		err = cmdStatus(dir, args[1:])
 	case "watch":
 		err = cmdWatch(dir)
+	case "admin":
+		err = cmdAdmin(dir, args[1:])
+	case "admin-keygen":
+		err = cmdAdminKeygen(args[1:])
+	case "admin-pub":
+		err = cmdAdminPub(args[1:])
 	default:
 		usage()
 		os.Exit(2)
@@ -76,6 +84,9 @@ func usage() {
   lanmsg-cli [-config dir] clear -to NAME_OR_ID [-both]
   lanmsg-cli [-config dir] status available|away|busy|dnd|invisible
   lanmsg-cli [-config dir] watch
+  lanmsg-cli [-config dir] admin devices|stats|pending|approval on|off|show NAME|approve NAME|deny NAME|revoke NAME|rename NAME -as NEW|remove NAME|reauth NAME [-yes] [-key path]
+  lanmsg-cli admin-keygen [-key path]   create the household admin key (~/.lanmsg-keys/admin.key)
+  lanmsg-cli admin-pub [-key path]      print the admin key's public half
 `)
 }
 

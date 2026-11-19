@@ -105,11 +105,34 @@ func newRosterView(g *guiApp) *rosterView {
 			if e.State == proto.StatePending {
 				subText = "awaiting approval"
 			}
+			// Admin mode only: how this person is connected / last seen.
+			if extra := r.g.adminExtra(e.DeviceID); extra != "" {
+				subText += "  ·  " + extra
+			}
+			revoked := e.State == proto.StateRevoked
+			if revoked {
+				subText = r.g.adminExtra(e.DeviceID)
+				label = e.DisplayName + "  (revoked)"
+				name.SetText(label)
+				dot.FillColor = presenceColor(proto.StatusOffline, false)
+				dot.Refresh()
+			}
+			// Revoked registrations stay in the admin's list but greyed out.
+			if revoked {
+				name.Importance, sub.Importance = widget.LowImportance, widget.LowImportance
+			} else {
+				name.Importance, sub.Importance = widget.MediumImportance, widget.MediumImportance
+			}
+			name.Refresh()
 			sub.SetText(subText)
 		},
 	)
 	r.list.OnSelected = func(id widget.ListItemID) {
 		if id >= 0 && id < len(r.entries) {
+			if r.entries[id].State == proto.StateRevoked {
+				r.list.UnselectAll() // nothing to chat with; use the right-click menu
+				return
+			}
 			r.g.selectPeer(r.entries[id])
 		}
 	}

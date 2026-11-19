@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -205,7 +206,12 @@ type handshakeResult struct {
 func (c *Client) handshake(ctx context.Context, w *wsConn, enroll *proto.Enroll) (handshakeResult, error) {
 	var res handshakeResult
 
-	hello := proto.Hello{ClientVersion: version.Version}
+	hello := proto.Hello{
+		ClientVersion: version.Version,
+		ClientKind:    ClientKind,
+		ClientOS:      runtime.GOOS,
+		ClientArch:    runtime.GOARCH,
+	}
 	if enroll == nil {
 		hello.DeviceID = c.cfg.DeviceID
 	}

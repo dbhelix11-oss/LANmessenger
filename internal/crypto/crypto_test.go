@@ -253,3 +253,28 @@ func TestSignVerify(t *testing.T) {
 		t.Fatal("VerifyFromB64Pub rejected a valid signature")
 	}
 }
+
+func TestAdminKeyRoundTrip(t *testing.T) {
+	path := t.TempDir() + "/keys/admin.key"
+	pub, err := GenerateAdminKey(path, "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAdminKey(path, "correct horse battery"); err == nil {
+		t.Fatal("overwrote an existing admin key")
+	}
+	if _, err := LoadAdminKey(path, "wrong passphrase!"); err != ErrAdminKeyPassphrase {
+		t.Fatalf("wrong passphrase err = %v", err)
+	}
+	priv, err := LoadAdminKey(path, "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("hello")
+	if ok, _ := VerifyFromB64Pub(pub, msg, Sign(priv, msg)); !ok {
+		t.Fatal("loaded key does not match stored public key")
+	}
+	if got, _ := ReadAdminKeyPub(path); got != pub {
+		t.Fatal("ReadAdminKeyPub mismatch")
+	}
+}

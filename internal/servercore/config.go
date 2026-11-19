@@ -33,6 +33,11 @@ type Config struct {
 	// The first device to enroll on a fresh server is added here automatically.
 	AdminDevices []string `toml:"admin_devices"`
 
+	// AdminKeyPub is the base64 ed25519 public key of the household admin key.
+	// When set, every admin frame must be signed by it (see proto.AdminAuth) and
+	// the per-device admin flag no longer grants admin powers.
+	AdminKeyPub string `toml:"admin_key_pub,omitempty"`
+
 	// MinClientVersion, when set, rejects any client whose Hello.ClientVersion
 	// compares older (internal/version.Compare) with ErrClientTooOld. Empty
 	// (the default) enforces no floor — every existing config file keeps

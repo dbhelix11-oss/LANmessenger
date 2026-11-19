@@ -77,6 +77,15 @@ type guiApp struct {
 	offeredVersion  string
 	pumpCancel      context.CancelFunc
 
+	// admin mode idle-lock timer (see admin.go)
+	adminMu        sync.Mutex
+	adminLockTimer *time.Timer
+	adminLockAt    time.Time // when the idle lock fires; zero while locked
+	adminWatchOnce sync.Once
+	adminInfo      map[string]proto.DeviceReport // admin-only extras for the roster
+	adminInfoAt    time.Time
+	adminCountdown *widget.Label // in the open console, nil otherwise
+
 	// adminReload, when set, refreshes the open admin panel.
 	adminReload func()
 }

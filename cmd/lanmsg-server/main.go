@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/term"
 
+	"lanmessenger/internal/crypto"
 	"lanmessenger/internal/servercore"
 )
 
@@ -45,6 +46,8 @@ func main() {
 		err = cmdRun(os.Args[2:], logger)
 	case "fingerprint":
 		err = cmdFingerprint(os.Args[2:])
+	case "admin-key":
+		err = cmdAdminKey(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -70,6 +73,12 @@ func usage() {
 
   lanmsg-server fingerprint [-config path]
       Print the TLS certificate fingerprint clients must confirm.
+
+  lanmsg-server admin-key set  [-config path] <base64-public-key>
+  lanmsg-server admin-key show [-config path]
+      Install (or show) the household admin PUBLIC key. Restart the relay after
+      'set'. Generate the key pair on your own machine with
+      'lanmsg-cli admin-keygen'; the private half never goes on the relay.
 `)
 }
 
@@ -183,4 +192,44 @@ func promptPassphrase() (string, error) {
 		return "", errors.New("passphrases did not match")
 	}
 	return p1, nil
+}
+
+func cmdAdminKey(args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: lanmsg-server admin-key set|show [-config path] [<public-key>]")
+	}
+	sub := args[0]
+	fs := flag.NewFlagSet("admin-key", flag.ExitOnError)
+	cfgPath := fs.String("config", defaultConfigPath, "path to the config file")
+	_ = fs.Parse(args[1:])
+
+	cfg, err := servercore.LoadConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	switch sub {
+	case "show":
+		if cfg.AdminKeyPub == "" {
+			fmt.Println("(no admin key set; legacy device-flag admin is in effect)")
+		} else {
+			fmt.Println(cfg.AdminKeyPub)
+		}
+		return nil
+	case "set":
+		if fs.NArg() != 1 {
+			return errors.New("usage: lanmsg-server admin-key set [-config path] <base64-public-key>")
+		}
+		pub := strings.TrimSpace(fs.Arg(0))
+		if _, err := crypto.DecodeSignPub(pub); err != nil {
+			return fmt.Errorf("not a valid ed25519 public key: %w", err)
+		}
+		cfg.AdminKeyPub = pub
+		if err := cfg.Save(); err != nil {
+			return err
+		}
+		fmt.Println("admin key installed; restart the relay for it to take effect")
+		return nil
+	default:
+		return fmt.Errorf("unknown admin-key command %q", sub)
+	}
 }

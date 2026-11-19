@@ -1,5 +1,87 @@
 # Changelog
 
+## 2026-11-19 — Client kind/OS, admin session polish, CLI admin console, update-route hardening (not yet released)
+
+### Added
+- **Client kind, OS and CPU** are declared in the hello (`gui`, `cli`, `remote-cli`; unsigned, advisory), stored per
+  connection (migration `0003_conn_client_kind`) and shown in Properties ("Client", "Operating sys"). Android does not
+  send them yet.
+- **GUI admin session polish:** the Admin button shows "Admin · unlocked m:ss" counting down to the 15-minute idle
+  lock, the console shows the same, and while unlocked the roster adds "via <path> · <kind> <os>" (online) or
+  "last seen … via <path>" (offline), refreshed every 30 s. Watching never restarts the idle clock.
+- **`lanmsg-cli admin devices|stats|pending|show|approve|deny|remove|reauth`** (`-yes`, `-key`): passphrase prompt on the
+  terminal, every action signed by the admin key, remove/reauth/deny ask you to type the device name with its
+  fingerprint shown. Report formatting moved to `clientcore.FormatDeviceReport` (shared with the GUI).
+
+- **Revoke registration** (admin; right-click, console "Revoke…", `lanmsg-cli admin revoke`): the device is dropped and hidden from
+  everyone else, but its record is kept and shown greyed out ("(revoked)") in the admin's roster. New state `revoked`,
+  frame `admin_revoke`, migration `0004_revocation`. Re-authorize (back to pending) restores it; **Delete from household**
+  (the old Remove, now in the context menu too) forgets it entirely.
+- **Return alerts:** a sign-in or enrolment with a revoked device's ID or signing key is refused, recorded and pushed to admin
+  devices on the LAN (`admin_alert`; the GUI shows a notification and a dialog even while admin mode is locked). A **new** key
+  is not refused, but if the connection resembles a revoked device's (at least two of: same TLS handshake shape, same
+  program/OS/CPU, same LAN address) the admin is told it may be the same machine and which signals matched. Hints, not proof:
+  every install of one build shares a TLS shape and client string. Properties shows revocation time, attempts and last match.
+- A stored denied or revoked registration is no longer overwritten by a fresh enrol with the same key.
+
+- **Admin setting: require approval for new devices.** New signed admin frame `admin_set_approval` (LAN-only like the rest;
+  the signature binds "on"/"off"), shown in the admin console's new "Relay settings" tab and as
+  `lanmsg-cli admin approval on|off|show`. The relay applies it at once and writes it to its config (`require_admin_approval`);
+  if the file cannot be written the change is undone. `AdminOverview` returns the device list plus the setting.
+
+- **Admin rename** (right-click "Rename… (admin)", console "Rename…", `lanmsg-cli admin rename NAME -as "New Name"`): the relay
+  changes the display name it holds (1..64 printable characters, signature binds device and name), pushes a directory update
+  to everyone, and tells the renamed device itself (`profile_update` live, and `display_name` in the `ready` frame for devices
+  that were offline), which adopts and saves it (`EventSelfRenamed`). Old conversations relabel too: messages carry no names.
+  Android 2.0.4 adopts it as well; GUI 0.1.4 and Android 2.0.3 ignore it. Per-recipient names (option C) are in TODO.md.
+- **Your own name:** Settings shows "My display name" with a "Change… (admin)" button (admin key required), because the roster never lists you so the right-click menu cannot reach your own entry. The relay already allowed renaming any device including the admin's own.
+- Version 0.1.5 (GUI, remote CLI), relay ready-frame field `display_name`.
+
+### Changed
+- Relay `/updates/*`: no directory listing of `/updates/artifacts/` (404), 60 requests per minute per source address.
+  Deployed 2026-11-19; old builds moved to `/mnt/ssd/lanmsg/data/updates-old/` on the router.
+
+## 2026-11-18 — Admin key, key-checking console, device Properties (not yet released)
+
+### Added
+
+- **Admin key** (`internal/crypto/adminkey.go`): an Ed25519 key sealed with an Argon2id-derived passphrase,
+  kept in `~/.lanmsg-keys/admin.key` (override: `LANMSG_ADMIN_KEY`). `lanmsg-cli admin-keygen` creates it,
+  `lanmsg-cli admin-pub` prints the public half, `lanmsg-server admin-key set|show` installs it in the relay
+  config (`admin_key_pub`; restart the relay). With a key installed, every admin frame needs a fresh signature
+  from it (`proto.AdminAuth`: timestamp within 2 min + one-time nonce); the per-device admin flag no longer
+  grants anything. Without one the relay behaves as before.
+- **Remove** and **force re-authorization** (`admin_remove`, `admin_reauth`): remove deletes the device and
+  drops its session; re-auth sets it back to pending and drops its session.
+- **Device report** (`admin_devices`): fingerprint, state, online, enrolled/approved times, declared facts
+  with a change log, connection history, distinct paths and TLS hashes.
+- **Recording from now on** (migration `0002_device_records`): per connection the relay stores the path
+  (`lan`/`direct`/`tunnel`, by listener, since tunnelled clients all look like 127.0.0.1), a JA3-style TLS
+  ClientHello hash (built from the fields Go exposes; not comparable to public JA3 lists), client version and
+  heartbeat round-trip times. Clients send device-key-signed facts (version, OS, arch, sha256 of the running
+  binary, optional model, time zone); field changes are logged. History is capped at 500 rows per device.
+- **GUI**: an "Admin" button (shown when a key file exists) that asks for the key passphrase and auto-locks
+  after 15 idle minutes; a console with Pending and "Devices & keys" tabs (fingerprint compare box, Properties,
+  Force re-authorization, Remove); "Properties… (admin)" in the roster right-click menu.
+- Tests: `TestAdminKeyConsole` (locked/wrong/right key, approve, facts, history, re-auth, remove),
+  `TestAdminKeyRoundTrip`, replay cache, RTT stats, fact-change log.
+
+- **LAN-only admin** (`adminPathOK`): every admin frame (including approve/deny/list) is refused unless the
+  connection arrived on the `lan` path, even with a valid admin signature. A tunnelled client (Tor/AWS) or a
+  public-address client can never administer. Consequence: approvals, removal and re-authorization need the
+  home network. Tests: `TestAdminIsLANOnly`, `TestPathLabel`.
+
+### Deliberately not built
+
+- Real source address via the PROXY protocol, or anything that unmasks Tor clients.
+
+### Known limits
+
+- The relay cannot tell an SSH forward from a Tor circuit when both enter through the same tunnel.
+- Device resume still proves only the household passphrase, not possession of the device key (see TODO.md).
+- The Android app does not yet send a hardware model or show any admin UI.
+- Not yet run against the live router relay, and GUI screens were compiled but not clicked through.
+
 ## 2026-11-17 (night) — GUI: update check + install, tray badge with focus, click fix, version 0.1.3
 
 ### Added

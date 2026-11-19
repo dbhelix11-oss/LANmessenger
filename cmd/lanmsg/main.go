@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	clientcore.ClientKind = "gui"
 	dirFlag := flag.String("config", "", "configuration directory (default: OS config dir + /lanmessenger)")
 	startMinimized := flag.Bool("start-minimized", false, "start hidden in the system tray instead of opening the main window (requires a tray icon)")
 	flag.Parse()

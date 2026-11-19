@@ -29,6 +29,12 @@ func (s *Server) resumeDevice(c *conn, deviceID string) error {
 	case proto.StateDenied:
 		c.sendError("", proto.ErrForbidden, "this device was denied")
 		return errors.New("resume: denied device")
+	case proto.StateRevoked:
+		// The household passphrase was proven, but the device key was not, so
+		// this only matches on the device ID.
+		s.revokedAttempt(c, entry, "id", strings.Join(fingerprintSignalsFor(s, c, entry.DeviceID), ","), "", entry.DeviceID)
+		c.sendError("", proto.ErrForbidden, "this registration was revoked")
+		return errors.New("resume: revoked device")
 	case proto.StatePending:
 		c.deviceID = entry.DeviceID
 		c.entry = entry
@@ -77,6 +83,27 @@ func (s *Server) enrollDevice(ctx context.Context, c *conn) error {
 	sum := sha256.Sum256(signPub)
 	deviceID := hex.EncodeToString(sum[:16])
 
+	// A stored registration is not silently overwritten: a denied or revoked one
+	// stays that way, and a revoked one comes back to the admin as an alert.
+	if prev, err := s.store.getDevice(deviceID); err == nil {
+		switch prev.State {
+		case proto.StateRevoked:
+			match := "id"
+			if prev.SignPub == en.SignPub && prev.BoxPub == en.BoxPub {
+				match = "key"
+			}
+			s.revokedAttempt(c, prev, match, strings.Join(fingerprintSignalsFor(s, c, prev.DeviceID), ","), name, deviceID)
+			c.sendError("", proto.ErrForbidden, "this registration was revoked")
+			return errors.New("enroll: revoked device")
+		case proto.StateDenied:
+			c.sendError("", proto.ErrForbidden, "this device was denied")
+			return errors.New("enroll: denied device")
+		}
+	}
+
+	// A different key from a connection that resembles a revoked device: tell the admin.
+	s.checkRevokedFingerprints(c, name, deviceID)
+
 	count, err := s.store.countDevices()
 	if err != nil {
 		return err
@@ -85,7 +112,7 @@ func (s *Server) enrollDevice(ctx context.Context, c *conn) error {
 
 	state := proto.StateActive
 	admin := firstDevice
-	if s.cfg.RequireAdminApproval && !firstDevice {
+	if s.requireApproval() && !firstDevice {
 		state = proto.StatePending
 	}
 
@@ -147,6 +174,7 @@ func (s *Server) afterReady(c *conn) {
 		Admin:            c.admin,
 		ServerVersion:    version.Version,
 		MinClientVersion: s.cfg.MinClientVersion,
+		DisplayName:      c.entry.DisplayName,
 	})
 
 	entries, err := s.store.listDevicesByState(proto.StateActive)
@@ -192,4 +220,18 @@ func (s *Server) afterReady(c *conn) {
 	// Tell everyone else this device is now online.
 	s.broadcastPresence(c, true)
 	s.broadcastDirectoryUpdate(c.entry, false)
+}
+
+// fingerprintSignalsFor returns how this connection resembles one particular revoked device.
+func fingerprintSignalsFor(s *Server, c *conn, id string) []string {
+	profiles, err := s.store.revokedProfiles()
+	if err != nil {
+		return nil
+	}
+	for _, p := range profiles {
+		if p.ID == id {
+			return fingerprintSignals(p, c)
+		}
+	}
+	return nil
 }

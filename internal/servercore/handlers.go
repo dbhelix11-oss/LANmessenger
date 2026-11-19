@@ -38,6 +38,27 @@ func (s *Server) dispatch(c *conn, env *proto.Envelope) {
 	case proto.TypeAdminDeny:
 		s.handleAdminAction(c, env, "deny")
 
+	case proto.TypeAdminDevices:
+		s.handleAdminDevices(c, env)
+
+	case proto.TypeAdminRemove:
+		s.handleAdminRemove(c, env)
+
+	case proto.TypeAdminReauth:
+		s.handleAdminReauth(c, env)
+
+	case proto.TypeAdminSetApproval:
+		s.handleAdminSetApproval(c, env)
+
+	case proto.TypeAdminRename:
+		s.handleAdminRename(c, env)
+
+	case proto.TypeAdminRevoke:
+		s.handleAdminRevoke(c, env)
+
+	case proto.TypeClientFacts:
+		s.handleClientFacts(c, env)
+
 	default:
 		c.sendError(env.ID, proto.ErrBadRequest, "unsupported frame type: "+string(env.Type))
 	}
@@ -151,8 +172,11 @@ func (s *Server) handleAdminListPending(c *conn, env *proto.Envelope) {
 	if !s.requireReady(c, env.ID) {
 		return
 	}
-	if !c.admin {
-		c.sendError(env.ID, proto.ErrForbidden, "not an admin device")
+	var lp proto.AdminListPending
+	if len(env.Data) > 0 {
+		_ = env.Unmarshal(&lp)
+	}
+	if !s.adminAllowed(c, env, proto.TypeAdminListPending, "", lp.Auth, true) {
 		return
 	}
 	pending, err := s.store.listDevicesByState(proto.StatePending)
@@ -168,14 +192,12 @@ func (s *Server) handleAdminAction(c *conn, env *proto.Envelope, action string) 
 	if !s.requireReady(c, env.ID) {
 		return
 	}
-	if !c.admin {
-		c.sendError(env.ID, proto.ErrForbidden, "not an admin device")
-		return
-	}
 
 	var (
 		targetID string
 		sig      string
+		auth     *proto.AdminAuth
+		ftype    proto.Type
 	)
 	switch action {
 	case "approve":
@@ -184,22 +206,27 @@ func (s *Server) handleAdminAction(c *conn, env *proto.Envelope, action string) 
 			c.sendError(env.ID, proto.ErrBadRequest, err.Error())
 			return
 		}
-		targetID, sig = a.DeviceID, a.Signature
+		targetID, sig, auth, ftype = a.DeviceID, a.Signature, a.Auth, proto.TypeAdminApprove
 	case "deny":
 		var d proto.AdminDeny
 		if err := env.Unmarshal(&d); err != nil {
 			c.sendError(env.ID, proto.ErrBadRequest, err.Error())
 			return
 		}
-		targetID, sig = d.DeviceID, d.Signature
+		targetID, sig, auth, ftype = d.DeviceID, d.Signature, d.Auth, proto.TypeAdminDeny
 	}
 
-	// The admin signs "approve:<deviceID>" / "deny:<deviceID>" with its own
-	// signing key; verify against the key on file for this admin device.
-	ok, err := crypto.VerifyFromB64Pub(c.entry.SignPub, proto.AdminActionMessage(action, targetID), sig)
-	if err != nil || !ok {
-		c.sendError(env.ID, proto.ErrForbidden, "invalid admin signature")
+	if !s.adminAllowed(c, env, ftype, targetID, auth, true) {
 		return
+	}
+	if s.cfg.AdminKeyPub == "" {
+		// Legacy mode: the admin *device* signs "approve:<id>" / "deny:<id>"
+		// with its own signing key; verify against the key on file.
+		ok, err := crypto.VerifyFromB64Pub(c.entry.SignPub, proto.AdminActionMessage(action, targetID), sig)
+		if err != nil || !ok {
+			c.sendError(env.ID, proto.ErrForbidden, "invalid admin signature")
+			return
+		}
 	}
 
 	target, err := s.store.getDevice(targetID)

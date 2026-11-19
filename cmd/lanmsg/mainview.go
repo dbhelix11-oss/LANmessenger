@@ -37,8 +37,8 @@ func (g *guiApp) showMain() {
 	// The admin button is always built but only shown for admin devices. Admin
 	// status is learned asynchronously during the handshake, so onConnState
 	// toggles its visibility when the connection becomes ready.
-	g.adminBtn = widget.NewButtonWithIcon("Pending devices", theme.ConfirmIcon(), g.showAdminPanel)
-	g.adminBtn.Hidden = !g.client.IsAdmin()
+	g.adminBtn = widget.NewButtonWithIcon("Admin", theme.ConfirmIcon(), g.showAdminPanel)
+	g.adminBtn.Hidden = !g.adminAvailable()
 
 	versionLbl := widget.NewLabel(versionLabel())
 	versionLbl.TextStyle = fyne.TextStyle{Italic: true}
@@ -99,7 +99,7 @@ func (g *guiApp) refreshRoster() {
 		g.setStatusLine(err.Error())
 		return
 	}
-	g.roster.setEntries(entries)
+	g.roster.setEntries(g.withRevoked(entries))
 }
 
 func (g *guiApp) peerName(id string) string {
@@ -149,12 +149,31 @@ func (g *guiApp) selectPeer(e clientcore.RosterEntry) {
 
 // showPeerMenu pops up the right-click menu for one person in the roster.
 func (g *guiApp) showPeerMenu(e clientcore.RosterEntry, pos fyne.Position) {
-	menu := fyne.NewMenu("",
-		fyne.NewMenuItem("Verify fingerprint…", func() { g.showVerifyDialog(e.DeviceID) }),
-		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Delete history (for me only)…", func() { g.confirmClearHistory(e, false) }),
-		fyne.NewMenuItem("Delete history (for me and "+e.DisplayName+")…", func() { g.confirmClearHistory(e, true) }),
-	)
+	var items []*fyne.MenuItem
+	if e.State != proto.StateRevoked { // a revoked registration is only an admin record
+		items = append(items,
+			fyne.NewMenuItem("Verify fingerprint…", func() { g.showVerifyDialog(e.DeviceID) }),
+			fyne.NewMenuItemSeparator(),
+			fyne.NewMenuItem("Delete history (for me only)…", func() { g.confirmClearHistory(e, false) }),
+			fyne.NewMenuItem("Delete history (for me and "+e.DisplayName+")…", func() { g.confirmClearHistory(e, true) }))
+	}
+	if g.adminAvailable() {
+		if len(items) > 0 {
+			items = append(items, fyne.NewMenuItemSeparator())
+		}
+		items = append(items, fyne.NewMenuItem("Properties… (admin)", func() { g.showPropertiesFor(e.DeviceID, e.DisplayName) }),
+			fyne.NewMenuItem("Rename… (admin)", func() { g.promptRename(e.DeviceID, e.DisplayName, nil) }))
+		if e.State == proto.StateRevoked {
+			items = append(items, fyne.NewMenuItem("Re-authorize… (admin)", func() { g.confirmReauth(e.DeviceID, e.DisplayName, nil) }))
+		} else {
+			items = append(items, fyne.NewMenuItem("Revoke registration… (admin)", func() { g.confirmRevoke(e.DeviceID, e.DisplayName, nil) }))
+		}
+		items = append(items, fyne.NewMenuItem("Delete from household… (admin)", func() { g.confirmDelete(e.DeviceID, e.DisplayName, nil) }))
+	}
+	if len(items) == 0 {
+		return
+	}
+	menu := fyne.NewMenu("", items...)
 	widget.ShowPopUpMenuAtPosition(menu, g.win.Canvas(), pos)
 }
 

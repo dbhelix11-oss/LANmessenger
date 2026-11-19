@@ -35,6 +35,17 @@ type conn struct {
 
 	ready atomic.Bool
 
+	// Observed at connect time, recorded in the device's connection log.
+	path          string // "lan" | "direct" | "tunnel"
+	remoteHost    string
+	tlsHash       string
+	clientVersion string
+	clientKind    string
+	clientOS      string
+	clientArch    string
+	connRecID     int64
+	rtt           rttStats
+
 	// presence, guarded by pmu.
 	pmu       sync.Mutex
 	status    proto.Status
@@ -74,11 +85,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	c := &conn{
-		srv:    s,
-		ws:     ws,
-		status: proto.StatusAvailable,
-		ctx:    ctx,
-		cancel: cancel,
+		srv:        s,
+		ws:         ws,
+		status:     proto.StatusAvailable,
+		ctx:        ctx,
+		cancel:     cancel,
+		remoteHost: hostOnly(r.RemoteAddr),
+		path:       pathLabel(r),
+		tlsHash:    s.tlsHashes.take(r.RemoteAddr),
 	}
 	defer cancel()
 
@@ -92,7 +106,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.addConn(c)
+	s.openConnLog(c)
 	defer func() {
+		s.closeConnLog(c)
 		s.removeConn(c)
 		if c.isReady() {
 			c.setStatus(c.getStatus(), c.getStatusMsg())
@@ -135,16 +151,28 @@ func (c *conn) heartbeat() {
 	}
 	t := time.NewTicker(iv)
 	defer t.Stop()
+	ping := func() bool {
+		pctx, cancel := context.WithTimeout(c.ctx, pingTimeout)
+		start := time.Now()
+		err := c.ws.Ping(pctx)
+		cancel()
+		if err != nil {
+			c.close(proto.ErrInternal, "heartbeat timeout")
+			return false
+		}
+		c.rtt.add(time.Since(start))
+		return true
+	}
+	// Measure once straight away so even a short connection has a sample.
+	if !ping() {
+		return
+	}
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case <-t.C:
-			pctx, cancel := context.WithTimeout(c.ctx, pingTimeout)
-			err := c.ws.Ping(pctx)
-			cancel()
-			if err != nil {
-				c.close(proto.ErrInternal, "heartbeat timeout")
+			if !ping() {
 				return
 			}
 		}
@@ -220,6 +248,10 @@ func (s *Server) handshake(ctx context.Context, c *conn) error {
 	if err := env.Unmarshal(&hello); err != nil {
 		return err
 	}
+	c.clientVersion = clip(hello.ClientVersion, 32)
+	c.clientKind = clip(hello.ClientKind, 24)
+	c.clientOS = clip(hello.ClientOS, 24)
+	c.clientArch = clip(hello.ClientArch, 24)
 	if s.cfg.MinClientVersion != "" && hello.ClientVersion != "" &&
 		version.Compare(hello.ClientVersion, s.cfg.MinClientVersion) < 0 {
 		c.sendError("", proto.ErrClientTooOld, "this client build is too old; update to continue")

@@ -34,6 +34,8 @@ type Server struct {
 	// Both are in-memory only and reset on restart.
 	connLimiter  *ratelimit.Limiter
 	frameLimiter *ratelimit.Limiter
+	// updateLimiter bounds requests to /updates/* per source (60 per minute).
+	updateLimiter *ratelimit.Limiter
 
 	mu    sync.RWMutex
 	conns map[string]*conn // device_id -> connection (ready or pending)
@@ -41,6 +43,9 @@ type Server struct {
 	// cfgMu guards writes to cfg.AdminDevices + Config.Save from concurrent
 	// enrollments / approvals.
 	cfgMu sync.Mutex
+
+	tlsHashes tlsHashTable
+	adminSeen adminReplayCache
 }
 
 // New creates a server from cfg. It ensures the data directory exists, opens the
@@ -71,7 +76,8 @@ func New(cfg *Config, logger *slog.Logger) (*Server, error) {
 			time.Duration(cfg.RateLimit.ConnectWindowSeconds)*time.Second),
 		frameLimiter: ratelimit.New(cfg.RateLimit.MaxFramesPerWindow,
 			time.Duration(cfg.RateLimit.FrameWindowSeconds)*time.Second),
-		conns: make(map[string]*conn),
+		updateLimiter: ratelimit.New(60, time.Minute),
+		conns:         make(map[string]*conn),
 	}, nil
 }
 
@@ -112,14 +118,14 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 	if s.cfg.Tunnel != nil {
 		go s.runTunnel(ctx)
 	}
-	return s.serveHTTP(ctx, ln)
+	return s.serveHTTP(ctx, ln, "")
 }
 
 // serveHTTP runs the HTTPS/WebSocket server on ln until ctx is cancelled. It
 // does not touch the store or the background loops started by serve, so it's
 // safe to call concurrently against more than one listener sharing this
 // *Server — e.g. the LAN listener plus a tunnel-fed one.
-func (s *Server) serveHTTP(ctx context.Context, ln net.Listener) error {
+func (s *Server) serveHTTP(ctx context.Context, ln net.Listener, kind string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -131,8 +137,19 @@ func (s *Server) serveHTTP(ctx context.Context, ln net.Listener) error {
 	mux.HandleFunc("/updates/artifacts/", s.handleUpdatesArtifact)
 
 	httpSrv := &http.Server{
-		Handler:           mux,
-		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{s.tlsCert}, MinVersion: tls.VersionTLS12},
+		Handler: mux,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{s.tlsCert},
+			MinVersion:   tls.VersionTLS12,
+			// Not used to change the config: only to observe the ClientHello.
+			GetConfigForClient: func(h *tls.ClientHelloInfo) (*tls.Config, error) {
+				s.tlsHashes.put(h.Conn.RemoteAddr().String(), clientHelloHash(h))
+				return nil, nil
+			},
+		},
+		ConnContext: func(c context.Context, _ net.Conn) context.Context {
+			return context.WithValue(c, listenerKindKey{}, kind)
+		},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -192,6 +209,7 @@ func (s *Server) rateLimitGCLoop(ctx context.Context) {
 		case now := <-t.C:
 			s.connLimiter.GC(now)
 			s.frameLimiter.GC(now)
+			s.updateLimiter.GC(now)
 		}
 	}
 }

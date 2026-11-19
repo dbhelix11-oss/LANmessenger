@@ -223,7 +223,7 @@ func (c *Client) ListPending(ctx context.Context) ([]proto.DirectoryEntry, error
 	if w == nil || c.State() != StateReady {
 		return nil, ErrNotReady
 	}
-	if !c.IsAdmin() {
+	if !c.IsAdmin() && !c.HasAdminKey() {
 		return nil, fmt.Errorf("clientcore: this device is not an admin")
 	}
 
@@ -231,7 +231,11 @@ func (c *Client) ListPending(ctx context.Context) ([]proto.DirectoryEntry, error
 	ch := c.newPending(id)
 	defer c.cancelPending(id)
 
-	if err := w.send(ctx, proto.TypeAdminListPending, id, proto.AdminListPending{}); err != nil {
+	auth, err := c.adminAuth(proto.TypeAdminListPending, "")
+	if err != nil {
+		return nil, err
+	}
+	if err := w.send(ctx, proto.TypeAdminListPending, id, proto.AdminListPending{Auth: auth}); err != nil {
 		return nil, err
 	}
 
@@ -270,15 +274,23 @@ func (c *Client) adminAction(ctx context.Context, action, deviceID string) error
 	if w == nil || c.State() != StateReady {
 		return ErrNotReady
 	}
-	if !c.IsAdmin() {
+	if !c.IsAdmin() && !c.HasAdminKey() {
 		return fmt.Errorf("clientcore: this device is not an admin")
 	}
 	sig := crypto.Sign(c.id.SignPriv, proto.AdminActionMessage(action, deviceID))
+	var ft proto.Type = proto.TypeAdminApprove
+	if action == "deny" {
+		ft = proto.TypeAdminDeny
+	}
+	auth, err := c.adminAuth(ft, deviceID)
+	if err != nil {
+		return err
+	}
 	switch action {
 	case "approve":
-		return w.send(ctx, proto.TypeAdminApprove, "", proto.AdminApprove{DeviceID: deviceID, Signature: sig})
+		return w.send(ctx, proto.TypeAdminApprove, "", proto.AdminApprove{DeviceID: deviceID, Signature: sig, Auth: auth})
 	case "deny":
-		return w.send(ctx, proto.TypeAdminDeny, "", proto.AdminDeny{DeviceID: deviceID, Signature: sig})
+		return w.send(ctx, proto.TypeAdminDeny, "", proto.AdminDeny{DeviceID: deviceID, Signature: sig, Auth: auth})
 	default:
 		return fmt.Errorf("clientcore: unknown admin action %q", action)
 	}

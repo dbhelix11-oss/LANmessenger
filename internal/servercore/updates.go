@@ -2,6 +2,7 @@ package servercore
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -21,11 +22,47 @@ import (
 // Fetcher treats that as "no update available right now," not an error
 // worth surfacing.
 
+// updatesAllowed applies a per-source request limit to the update routes so a
+// loop of 30 MB downloads cannot starve the small router. Tunnelled clients all
+// share the loopback source, so the limit is generous (see updateLimiter).
+func (s *Server) updatesAllowed(w http.ResponseWriter, r *http.Request) bool {
+	if s.updateLimiter.Allow(hostOnly(r.RemoteAddr)) {
+		return true
+	}
+	w.Header().Set("Retry-After", "60")
+	http.Error(w, "too many requests", http.StatusTooManyRequests)
+	return false
+}
+
+// noListFS serves files but refuses directories, so /updates/artifacts/ no
+// longer lists every build ever staged; only names the signed manifest
+// mentions are worth asking for.
+type noListFS struct{ fs http.FileSystem }
+
+func (n noListFS) Open(name string) (http.File, error) {
+	f, err := n.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		f.Close()
+		return nil, os.ErrNotExist
+	}
+	return f, nil
+}
+
 func (s *Server) handleUpdatesManifest(w http.ResponseWriter, r *http.Request) {
+	if !s.updatesAllowed(w, r) {
+		return
+	}
 	http.ServeFile(w, r, filepath.Join(s.cfg.UpdatesDir(), "manifest.json"))
 }
 
 func (s *Server) handleUpdatesSig(w http.ResponseWriter, r *http.Request) {
+	if !s.updatesAllowed(w, r) {
+		return
+	}
 	http.ServeFile(w, r, filepath.Join(s.cfg.UpdatesDir(), "manifest.json.sig"))
 }
 
@@ -37,6 +74,9 @@ func (s *Server) handleUpdatesSig(w http.ResponseWriter, r *http.Request) {
 // site rather than implicit in a library's behavior, and fails closed if
 // that ever changes.
 func (s *Server) handleUpdatesArtifact(w http.ResponseWriter, r *http.Request) {
+	if !s.updatesAllowed(w, r) {
+		return
+	}
 	artifactsDir := filepath.Join(s.cfg.UpdatesDir(), "artifacts")
 
 	rel := strings.TrimPrefix(r.URL.Path, "/updates/artifacts/")
@@ -46,5 +86,5 @@ func (s *Server) handleUpdatesArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.StripPrefix("/updates/artifacts/", http.FileServer(http.Dir(artifactsDir))).ServeHTTP(w, r)
+	http.StripPrefix("/updates/artifacts/", http.FileServer(noListFS{http.Dir(artifactsDir)})).ServeHTTP(w, r)
 }
